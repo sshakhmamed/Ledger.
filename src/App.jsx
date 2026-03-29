@@ -67,6 +67,29 @@ function parseAmount(value) {
   return negative ? -amount : amount;
 }
 
+function normalizeTransactionAmount(amount, details, type) {
+  if (Number.isNaN(amount)) return amount;
+
+  const detailsKey = String(details || "").trim().toLowerCase();
+  const typeKey = String(type || "").trim().toLowerCase();
+
+  const isDebit =
+    detailsKey === "debit" ||
+    typeKey.includes("debit") ||
+    typeKey.includes("withdrawal") ||
+    typeKey.includes("purchase");
+
+  const isCredit =
+    detailsKey === "credit" ||
+    typeKey.includes("credit") ||
+    typeKey.includes("deposit") ||
+    typeKey.includes("payment");
+
+  if (isDebit) return -Math.abs(amount);
+  if (isCredit) return Math.abs(amount);
+  return amount;
+}
+
 function parseCSVRows(text) {
   const parsedRows = [];
   let currentRow = [];
@@ -113,9 +136,25 @@ function parseCSVRows(text) {
 
 function parseCSV(text, learnedCategories = {}) {
   const parsedRows = parseCSVRows(text);
-  if (parsedRows.length < 2) return [];
+  if (parsedRows.length < 2) {
+    throw new Error("This CSV does not contain enough rows to import.");
+  }
 
   const headers = parsedRows[0].map(normalizeHeader);
+  const hasDateColumn = ["transaction date", "posting date", "post date", "date"].some((name) =>
+    headers.includes(name)
+  );
+  const hasDescriptionColumn = ["description", "details"].some((name) =>
+    headers.includes(name)
+  );
+  const hasAmountColumn = headers.includes("amount");
+
+  if (!hasDateColumn || !hasDescriptionColumn || !hasAmountColumn) {
+    throw new Error(
+      "Unsupported CSV format. Required columns include a date, description, and amount field."
+    );
+  }
+
   const getValue = (parts, ...names) => {
     for (const name of names) {
       const index = headers.indexOf(normalizeHeader(name));
@@ -130,24 +169,38 @@ function parseCSV(text, learnedCategories = {}) {
     const description = getValue(parts, "Description", "Details");
     const category = getValue(parts, "Category");
     const memo = getValue(parts, "Memo");
-    const amount = parseAmount(getValue(parts, "Amount"));
+    const details = getValue(parts, "Details");
+    const type = getValue(parts, "Type");
+    const amount = normalizeTransactionAmount(
+      parseAmount(getValue(parts, "Amount")),
+      details,
+      type
+    );
     const balance = parseAmount(getValue(parts, "Balance"));
-    const date = new Date(getValue(parts, "Transaction Date", "Date", "Post Date"));
+    const date = new Date(
+      getValue(parts, "Transaction Date", "Posting Date", "Post Date", "Date")
+    );
 
     if (!description || Number.isNaN(amount) || Number.isNaN(date.getTime())) continue;
 
     transactions.push({
-      details: getValue(parts, "Details", "Memo", "Description"),
+      details: details || getValue(parts, "Memo", "Description"),
       date,
       description,
       amount,
-      type: getValue(parts, "Type"),
+      type,
       balance: Number.isNaN(balance) ? 0 : balance,
       memo,
       category: category && category !== "Other"
         ? category
         : categorize(description, learnedCategories),
     });
+  }
+
+  if (transactions.length === 0) {
+    throw new Error(
+      "No valid transactions were found in this CSV. Check the date and amount columns, then try again."
+    );
   }
 
   return transactions.sort((a, b) => a.date - b.date);
@@ -261,6 +314,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 
 export default function FinanceDashboard() {
   const [transactions, setTransactions] = useState([]);
+  const [importError, setImportError] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [sortCol, setSortCol] = useState("date");
@@ -294,9 +348,17 @@ export default function FinanceDashboard() {
   const handleFile = useCallback((file) => {
     const reader = new FileReader();
     reader.onload = (e) => {
-      const parsed = parseCSV(e.target.result, learnedCategories);
-      setTransactions(parsed);
-      setActiveTab("overview");
+      try {
+        const parsed = parseCSV(e.target.result, learnedCategories);
+        setTransactions(parsed);
+        setImportError("");
+        setActiveTab("overview");
+      } catch (error) {
+        setImportError(error instanceof Error ? error.message : "This CSV file could not be imported.");
+      }
+    };
+    reader.onerror = () => {
+      setImportError("The selected file could not be read. Please try again with a different CSV.");
     };
     reader.readAsText(file);
   }, [learnedCategories]);
@@ -528,6 +590,25 @@ export default function FinanceDashboard() {
             </label>
           )}
         </div>
+
+        {importError && (
+          <div
+            style={{
+              ...cardStyle,
+              marginBottom: 16,
+              padding: "14px 18px",
+              border: "1px solid rgba(231,76,60,0.28)",
+              background: "rgba(231,76,60,0.08)",
+            }}
+          >
+            <p style={{ color: "#ffb3a8", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+              CSV import failed
+            </p>
+            <p style={{ color: "#f0cec8", fontSize: 12, lineHeight: 1.6 }}>
+              {importError}
+            </p>
+          </div>
+        )}
 
         {!hasData ? (
           /* Upload Screen */

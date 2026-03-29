@@ -1,26 +1,28 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 
 const CATEGORY_RULES = [
-  { category: "Groceries", keywords: ["kroger", "meijer", "wal-mart", "walmart", "sam's club", "samsclub", "target", "dollar general", "dollar-general", "family dollar", "united dairy", "troy dairy", "bayers melon", "us international foods"] },
-  { category: "Restaurants & Food", keywords: ["chipotle", "domino", "jimmy john", "little caesars", "taco bell", "taco shop", "victor's", "olive garden", "dairy queen", "chick-fil-a", "raising cane", "rusty taco", "marcos pizza", "hoshi ramen", "milano", "kung fu tea", "tropical smoothie", "dave", "hot chicken", "north dayton drive", "baker benji", "doordash", "panda"] },
-  { category: "Gas & Auto", keywords: ["shell", "speedway", "sheetz", "bp#", "casey", "sunoco", "murphy", "o'reilly", "glassman auto", "bob ross buick", "germain honda", "rocky's ace"] },
-  { category: "Subscriptions", keywords: ["disney", "tradingview", "openai", "chatgpt", "steamgames", "patreon", "x corp", "google *brawl", "apple.com"] },
-  { category: "Phone & Internet", keywords: ["tmobile", "t-mobile"] },
-  { category: "Insurance", keywords: ["progressive"] },
-  { category: "Entertainment", keywords: ["scene75", "kings island", "air force museum", "arkham tower", "best buy", "bestbuy", "kohls", "burlington", "ross store", "office depot", "home depot", "minutekey", "lumpkins glass"] },
-  { category: "Transfers & Payments", keywords: ["zelle", "online realtime transfer", "transfer to savings", "chase credit crd", "payment to chase", "wells fargo"] },
-  { category: "Car Wash", keywords: ["white water express"] },
-  { category: "Gas Station Snacks", keywords: ["fairborn kk"] },
-  { category: "Education", keywords: ["parchment", "university of ariz", "osu-campusparc", "hrb online tax"] },
-  { category: "Government & Taxes", keywords: ["irs", "ohtxsdirn", "dayton municipal", "oh bureau motor", "usps change"] },
-  { category: "Payroll", keywords: ["robinson's janit", "payroll"] },
-  { category: "Deposits", keywords: ["remote online deposit", "atm cash deposit"] },
-  { category: "Medical & Personal", keywords: ["walgreens", "nbs-uaz"] },
-  { category: "Clothing", keywords: ["jd 159"] },
+  { category: "Groceries", keywords: ["grocery", "supermarket", "market", "whole foods", "aldi", "kroger", "meijer", "publix", "safeway", "trader joe", "costco", "sam's club", "walmart", "target"] },
+  { category: "Restaurants & Food", keywords: ["restaurant", "cafe", "coffee", "pizza", "burger", "grill", "bar", "bakery", "doordash", "uber eats", "grubhub", "chipotle", "domino", "taco bell", "subway", "starbucks", "mcdonald", "chick-fil-a"] },
+  { category: "Gas & Auto", keywords: ["gas", "fuel", "shell", "speedway", "sheetz", "bp", "exxon", "mobil", "sunoco", "chevron", "valvoline", "auto parts", "o'reilly", "autozone", "advance auto", "firestone", "pep boys"] },
+  { category: "Subscriptions", keywords: ["subscription", "monthly", "annual", "netflix", "spotify", "hulu", "youtube premium", "disney", "patreon", "dropbox", "icloud", "google one", "chatgpt", "openai", "tradingview"] },
+  { category: "Phone & Internet", keywords: ["phone", "wireless", "mobile", "internet", "broadband", "comcast", "xfinity", "spectrum", "verizon", "at&t", "tmobile", "t-mobile"] },
+  { category: "Online", keywords: ["amazon", "ebay", "etsy", "shopify", "paypal", "stripe", "instacart", "walmart.com", "target.com", "bestbuy.com", "online purchase", "online order", "web payment"] },
+  { category: "Gaming", keywords: ["steam", "playstation", "xbox", "nintendo", "epic games", "riot games", "blizzard", "roblox", "minecraft", "game stop", "gamestop", "twitch", "discord nitro", "battle.net"] },
+  { category: "Insurance", keywords: ["insurance", "progressive", "geico", "state farm", "allstate", "liberty mutual"] },
+  { category: "Entertainment", keywords: ["movie", "theater", "cinema", "concert", "ticket", "museum", "theme park", "bowling", "arcade", "best buy", "burlington", "ross", "office depot", "home depot"] },
+  { category: "Transfers & Payments", keywords: ["zelle", "transfer", "payment", "credit card payment", "online payment", "venmo", "cash app", "paypal transfer", "ach transfer", "wire transfer"] },
+  { category: "Car Wash", keywords: ["car wash", "wash express", "wash club"] },
+  { category: "Gas Station Snacks", keywords: ["convenience", "snack", "7-eleven", "circle k", "quick mart"] },
+  { category: "Education", keywords: ["tuition", "university", "college", "school", "course", "udemy", "coursera", "student loan", "textbook"] },
+  { category: "Government & Taxes", keywords: ["irs", "tax", "dmv", "bureau of motor", "usps", "city of", "county", "state of", "department of taxation"] },
+  { category: "Payroll", keywords: ["payroll", "salary", "direct deposit", "employer", "wages"] },
+  { category: "Deposits", keywords: ["deposit", "check deposit", "cash deposit", "remote deposit"] },
+  { category: "Medical & Personal", keywords: ["pharmacy", "walgreens", "cvs", "doctor", "hospital", "dental", "vision", "clinic", "urgent care"] },
+  { category: "Clothing", keywords: ["clothing", "apparel", "shoe", "shoes", "nike", "adidas", "old navy", "gap", "h&m", "zara", "macy"] },
 ];
 
 const LEARNED_CATEGORIES_STORAGE_KEY = "finance-dashboard-learned-categories";
-const CATEGORY_OPTIONS = Array.from(new Set(CATEGORY_RULES.map((rule) => rule.category)));
+const CATEGORY_OPTIONS = Array.from(new Set([...CATEGORY_RULES.map((rule) => rule.category), "Other"]));
 
 function normalizeTransactionKey(description) {
   return String(description || "")
@@ -88,6 +90,13 @@ function normalizeTransactionAmount(amount, details, type) {
   if (isDebit) return -Math.abs(amount);
   if (isCredit) return Math.abs(amount);
   return amount;
+}
+
+function formatCurrency(value) {
+  return `$${Math.abs(value).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 function parseCSVRows(text) {
@@ -422,6 +431,22 @@ export default function FinanceDashboard() {
     });
   }, []);
 
+  const downloadTextReport = useCallback((reportText) => {
+    if (typeof window === "undefined" || !reportText) return;
+
+    const blob = new Blob([reportText], { type: "text/plain;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 10);
+
+    link.href = url;
+    link.download = `spending-report-${stamp}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  }, []);
+
   // Computed data
   const spending = useMemo(() => transactions.filter((t) => t.amount < 0 && t.category !== "Transfers & Payments" && t.category !== "Payroll" && t.category !== "Deposits"), [transactions]);
   const income = useMemo(() => transactions.filter((t) => t.amount > 0 && (t.category === "Payroll" || t.category === "Deposits" || t.type === "ACH_CREDIT" || t.type === "CHECK_DEPOSIT" || t.type === "QUICKPAY_CREDIT" || t.type === "PARTNERFI_TO_CHASE")), [transactions]);
@@ -497,6 +522,129 @@ export default function FinanceDashboard() {
   const learnedRules = useMemo(() => Object.entries(learnedCategories)
     .map(([merchantKey, category]) => ({ merchantKey, category }))
     .sort((a, b) => a.merchantKey.localeCompare(b.merchantKey)), [learnedCategories]);
+
+  const monthlyReports = useMemo(() => {
+    const map = {};
+
+    transactions.forEach((transaction) => {
+      const key = `${transaction.date.getFullYear()}-${String(transaction.date.getMonth() + 1).padStart(2, "0")}`;
+      if (!map[key]) {
+        map[key] = {
+          label: `${MONTHS[transaction.date.getMonth()]} ${transaction.date.getFullYear()}`,
+          spent: 0,
+          income: 0,
+          count: 0,
+        };
+      }
+
+      if (transaction.amount < 0 && transaction.category !== "Transfers & Payments") {
+        map[key].spent += Math.abs(transaction.amount);
+      }
+
+      if (transaction.amount > 0) {
+        map[key].income += transaction.amount;
+      }
+
+      map[key].count += 1;
+    });
+
+    return Object.entries(map)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, value]) => ({
+        ...value,
+        net: value.income - value.spent,
+      }));
+  }, [transactions]);
+
+  const quarterlyReports = useMemo(() => {
+    const map = {};
+
+    monthlyReports.forEach((month) => {
+      const [monthName, year] = month.label.split(" ");
+      const monthIndex = MONTHS.indexOf(monthName);
+      const quarter = Math.floor(monthIndex / 3) + 1;
+      const key = `${year}-Q${quarter}`;
+
+      if (!map[key]) {
+        map[key] = {
+          label: `Q${quarter} ${year}`,
+          spent: 0,
+          income: 0,
+          count: 0,
+        };
+      }
+
+      map[key].spent += month.spent;
+      map[key].income += month.income;
+      map[key].count += month.count;
+    });
+
+    return Object.entries(map)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, value]) => ({
+        ...value,
+        net: value.income - value.spent,
+      }));
+  }, [monthlyReports]);
+
+  const yearlyReports = useMemo(() => {
+    const map = {};
+
+    monthlyReports.forEach((month) => {
+      const year = month.label.split(" ")[1];
+      if (!map[year]) {
+        map[year] = {
+          label: year,
+          spent: 0,
+          income: 0,
+          count: 0,
+        };
+      }
+
+      map[year].spent += month.spent;
+      map[year].income += month.income;
+      map[year].count += month.count;
+    });
+
+    return Object.entries(map)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, value]) => ({
+        ...value,
+        net: value.income - value.spent,
+      }));
+  }, [monthlyReports]);
+
+  const reportText = useMemo(() => {
+    if (!transactions.length) return "";
+
+    const buildSection = (title, rows) => {
+      const lines = [title];
+
+      if (!rows.length) {
+        lines.push("No data");
+        return lines.join("\n");
+      }
+
+      rows.forEach((row) => {
+        lines.push(
+          `${row.label}: income ${formatCurrency(row.income)}, spent ${formatCurrency(row.spent)}, net ${row.net >= 0 ? "" : "-"}${formatCurrency(row.net)}, transactions ${row.count}`
+        );
+      });
+
+      return lines.join("\n");
+    };
+
+    return [
+      "Finance Dashboard Report",
+      `Generated: ${new Date().toLocaleString()}`,
+      "",
+      buildSection("Monthly Summary", monthlyReports),
+      "",
+      buildSection("Quarterly Summary", quarterlyReports),
+      "",
+      buildSection("Yearly Summary", yearlyReports),
+    ].join("\n");
+  }, [monthlyReports, quarterlyReports, yearlyReports, transactions]);
 
   const filteredTransactions = useMemo(() => {
     const baseList = activeTab === "income"
@@ -637,7 +785,7 @@ export default function FinanceDashboard() {
           <>
             {/* Tabs */}
             <div style={{ display: "flex", gap: 4, marginBottom: 28, background: "rgba(255,255,255,0.02)", borderRadius: 12, padding: 4, width: "fit-content" }}>
-              {["overview", "categories", "transactions", "income", "rules", "insights"].map((tab) => (
+              {["overview", "categories", "transactions", "income", "reports", "rules", "insights"].map((tab) => (
                 <button key={tab} style={tabStyle(tab)} onClick={() => { setActiveTab(tab); setSelectedCategory(null); }}>
                   {tab.charAt(0).toUpperCase() + tab.slice(1)}
                 </button>
@@ -946,6 +1094,79 @@ export default function FinanceDashboard() {
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {activeTab === "reports" && (
+              <div style={{ animation: "fadeUp 0.4s ease", display: "grid", gap: 16 }}>
+                <div style={{ ...cardStyle, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                  <div>
+                    <p style={{ color: "#786e60", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>
+                      Spending Reports
+                    </p>
+                    <p style={{ color: "#a09888", fontSize: 13, lineHeight: 1.7 }}>
+                      Generate monthly, quarterly, and yearly summaries from your uploaded bank CSV.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => downloadTextReport(reportText)}
+                    disabled={!reportText}
+                    style={{
+                      padding: "10px 16px",
+                      borderRadius: 10,
+                      border: "1px solid rgba(52,152,219,0.24)",
+                      background: reportText ? "rgba(52,152,219,0.14)" : "rgba(255,255,255,0.04)",
+                      color: reportText ? "#7fc7ff" : "#786e60",
+                      cursor: reportText ? "pointer" : "not-allowed",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      fontFamily: "'DM Sans', sans-serif",
+                    }}
+                  >
+                    Download TXT Report
+                  </button>
+                </div>
+
+                {[
+                  { title: "Monthly Summary", rows: monthlyReports },
+                  { title: "Quarterly Summary", rows: quarterlyReports },
+                  { title: "Yearly Summary", rows: yearlyReports },
+                ].map((section) => (
+                  <div key={section.title} style={cardStyle}>
+                    <p style={{ color: "#786e60", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16 }}>
+                      {section.title}
+                    </p>
+                    {section.rows.length === 0 ? (
+                      <p style={{ color: "#a09888", fontSize: 13 }}>Upload a CSV to generate this report.</p>
+                    ) : (
+                      <div style={{ display: "grid", gap: 10 }}>
+                        {section.rows.map((row) => (
+                          <div
+                            key={`${section.title}-${row.label}`}
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "minmax(120px, 1fr) repeat(4, minmax(90px, auto))",
+                              gap: 12,
+                              alignItems: "center",
+                              padding: "12px 14px",
+                              background: "rgba(255,255,255,0.02)",
+                              borderRadius: 12,
+                              border: "1px solid rgba(255,255,255,0.04)",
+                            }}
+                          >
+                            <span style={{ fontSize: 13, fontWeight: 600 }}>{row.label}</span>
+                            <span style={{ fontSize: 12, color: "#2ecc71" }}>Income {formatCurrency(row.income)}</span>
+                            <span style={{ fontSize: 12, color: "#e74c3c" }}>Spent {formatCurrency(row.spent)}</span>
+                            <span style={{ fontSize: 12, color: row.net >= 0 ? "#2ecc71" : "#f39c12" }}>
+                              Net {row.net >= 0 ? formatCurrency(row.net) : `-${formatCurrency(row.net)}`}
+                            </span>
+                            <span style={{ fontSize: 12, color: "#a09888" }}>{row.count} transactions</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
 

@@ -3,7 +3,8 @@ import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 const CATEGORY_RULES = [
   { category: "Groceries", keywords: ["grocery", "supermarket", "market", "whole foods", "aldi", "kroger", "meijer", "publix", "safeway", "trader joe", "costco", "sam's club", "walmart", "target"] },
   { category: "Restaurants & Food", keywords: ["restaurant", "cafe", "coffee", "pizza", "burger", "grill", "bar", "bakery", "doordash", "uber eats", "grubhub", "chipotle", "domino", "taco bell", "subway", "starbucks", "mcdonald", "chick-fil-a"] },
-  { category: "Gas & Auto", keywords: ["gas", "fuel", "shell", "speedway", "sheetz", "bp", "exxon", "mobil", "sunoco", "chevron", "valvoline", "auto parts", "o'reilly", "autozone", "advance auto", "firestone", "pep boys"] },
+  { category: "Gas & Fuel", keywords: ["gas", "fuel", "shell", "speedway", "sheetz", "bp", "exxon", "mobil", "sunoco", "chevron", "marathon", "circle k gas", "wawa"] },
+  { category: "Auto & Maintenance", keywords: ["valvoline", "auto parts", "o'reilly", "autozone", "advance auto", "firestone", "pep boys", "jiffy lube", "meineke", "midas", "mavis", "ntb", "car repair"] },
   { category: "Subscriptions", keywords: ["subscription", "monthly", "annual", "netflix", "spotify", "hulu", "youtube premium", "disney", "patreon", "dropbox", "icloud", "google one", "chatgpt", "openai", "tradingview"] },
   { category: "Phone & Internet", keywords: ["phone", "wireless", "mobile", "internet", "broadband", "comcast", "xfinity", "spectrum", "verizon", "at&t", "tmobile", "t-mobile"] },
   { category: "Online", keywords: ["amazon", "ebay", "etsy", "shopify", "paypal", "stripe", "instacart", "walmart.com", "target.com", "bestbuy.com", "online purchase", "online order", "web payment"] },
@@ -1005,8 +1006,8 @@ export default function FinanceDashboard() {
                                     e.target.value = "";
                                   }}
                                   style={{
-                                    background: "rgba(255,255,255,0.04)",
-                                    border: "1px solid rgba(255,255,255,0.08)",
+                                    background: "#1c1a17",
+                                    border: "1px solid rgba(255,255,255,0.12)",
                                     borderRadius: 8,
                                     padding: "6px 10px",
                                     color: "#f0ece4",
@@ -1014,11 +1015,11 @@ export default function FinanceDashboard() {
                                     fontFamily: "'DM Sans', sans-serif",
                                   }}
                                 >
-                                  <option value="" disabled>
+                                  <option value="" disabled style={{ background: "#1c1a17", color: "#f0ece4" }}>
                                     Categorize
                                   </option>
                                   {CATEGORY_OPTIONS.map((option) => (
-                                    <option key={option} value={option}>
+                                    <option key={option} value={option} style={{ background: "#1c1a17", color: "#f0ece4" }}>
                                       {option}
                                     </option>
                                   ))}
@@ -1095,8 +1096,8 @@ export default function FinanceDashboard() {
                             value={rule.category}
                             onChange={(e) => handleRuleCategoryChange(rule.merchantKey, e.target.value)}
                             style={{
-                              background: "rgba(255,255,255,0.04)",
-                              border: "1px solid rgba(255,255,255,0.08)",
+                              background: "#1c1a17",
+                              border: "1px solid rgba(255,255,255,0.12)",
                               borderRadius: 8,
                               padding: "9px 12px",
                               color: "#f0ece4",
@@ -1105,7 +1106,7 @@ export default function FinanceDashboard() {
                             }}
                           >
                             {CATEGORY_OPTIONS.map((option) => (
-                              <option key={option} value={option}>
+                              <option key={option} value={option} style={{ background: "#1c1a17", color: "#f0ece4" }}>
                                 {option}
                               </option>
                             ))}
@@ -1303,8 +1304,8 @@ export default function FinanceDashboard() {
                                                     value={t.category}
                                                     onChange={(e) => handleCategoryAssign(t, e.target.value)}
                                                     style={{
-                                                      background: "rgba(255,255,255,0.04)",
-                                                      border: "1px solid rgba(255,255,255,0.08)",
+                                                      background: "#1c1a17",
+                                                      border: "1px solid rgba(255,255,255,0.12)",
                                                       borderRadius: 6,
                                                       padding: "5px 8px",
                                                       color: "#f0ece4",
@@ -1314,7 +1315,7 @@ export default function FinanceDashboard() {
                                                     }}
                                                   >
                                                     {CATEGORY_OPTIONS.map((option) => (
-                                                      <option key={option} value={option}>
+                                                      <option key={option} value={option} style={{ background: "#1c1a17", color: "#f0ece4" }}>
                                                         {option}
                                                       </option>
                                                     ))}

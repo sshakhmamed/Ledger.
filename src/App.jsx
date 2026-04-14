@@ -329,6 +329,7 @@ export default function FinanceDashboard() {
   const [sortCol, setSortCol] = useState("date");
   const [sortDir, setSortDir] = useState(-1);
   const [searchTerm, setSearchTerm] = useState("");
+  const [expandedReportPeriod, setExpandedReportPeriod] = useState(null);
   const [learnedCategories, setLearnedCategories] = useState(() => {
     if (typeof window === "undefined") return {};
 
@@ -430,6 +431,43 @@ export default function FinanceDashboard() {
       return next;
     });
   }, []);
+
+  const getTransactionsForPeriod = useCallback((period, periodType) => {
+    return transactions.filter((t) => {
+      if (periodType === "monthly") {
+        const key = `${t.date.getFullYear()}-${String(t.date.getMonth() + 1).padStart(2, "0")}`;
+        return key === period;
+      } else if (periodType === "quarterly") {
+        const monthIndex = t.date.getMonth();
+        const quarter = Math.floor(monthIndex / 3) + 1;
+        const key = `${t.date.getFullYear()}-Q${quarter}`;
+        return key === period;
+      } else if (periodType === "yearly") {
+        return String(t.date.getFullYear()) === period;
+      }
+      return false;
+    });
+  }, [transactions]);
+
+  const getSpendingForPeriod = useCallback((period, periodType) => {
+    return getTransactionsForPeriod(period, periodType).filter((t) => t.amount < 0 && t.category !== "Transfers & Payments" && t.category !== "Payroll" && t.category !== "Deposits");
+  }, [getTransactionsForPeriod]);
+
+  const getIncomeForPeriod = useCallback((period, periodType) => {
+    return getTransactionsForPeriod(period, periodType).filter((t) => t.amount > 0 && (t.category === "Payroll" || t.category === "Deposits" || t.type === "ACH_CREDIT" || t.type === "CHECK_DEPOSIT" || t.type === "QUICKPAY_CREDIT" || t.type === "PARTNERFI_TO_CHASE"));
+  }, [getTransactionsForPeriod]);
+
+  const getCategoryBreakdownForPeriod = useCallback((period, periodType) => {
+    const periodSpending = getSpendingForPeriod(period, periodType);
+    const map = {};
+    periodSpending.forEach((t) => {
+      if (!map[t.category]) map[t.category] = 0;
+      map[t.category] += Math.abs(t.amount);
+    });
+    return Object.entries(map)
+      .map(([name, value], i) => ({ name, value: Math.round(value * 100) / 100, color: COLORS[i % COLORS.length] }))
+      .sort((a, b) => b.value - a.value);
+  }, [getSpendingForPeriod]);
 
   const downloadTextReport = useCallback((reportText) => {
     if (typeof window === "undefined" || !reportText) return;
@@ -1105,7 +1143,7 @@ export default function FinanceDashboard() {
                       Spending Reports
                     </p>
                     <p style={{ color: "#a09888", fontSize: 13, lineHeight: 1.7 }}>
-                      Generate monthly, quarterly, and yearly summaries from your uploaded bank CSV.
+                      Click any period to see detailed breakdown of income sources, spending by category, and individual transactions.
                     </p>
                   </div>
                   <button
@@ -1128,9 +1166,9 @@ export default function FinanceDashboard() {
                 </div>
 
                 {[
-                  { title: "Monthly Summary", rows: monthlyReports },
-                  { title: "Quarterly Summary", rows: quarterlyReports },
-                  { title: "Yearly Summary", rows: yearlyReports },
+                  { title: "Monthly Summary", rows: monthlyReports, type: "monthly" },
+                  { title: "Quarterly Summary", rows: quarterlyReports, type: "quarterly" },
+                  { title: "Yearly Summary", rows: yearlyReports, type: "yearly" },
                 ].map((section) => (
                   <div key={section.title} style={cardStyle}>
                     <p style={{ color: "#786e60", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16 }}>
@@ -1140,29 +1178,150 @@ export default function FinanceDashboard() {
                       <p style={{ color: "#a09888", fontSize: 13 }}>Upload a CSV to generate this report.</p>
                     ) : (
                       <div style={{ display: "grid", gap: 10 }}>
-                        {section.rows.map((row) => (
-                          <div
-                            key={`${section.title}-${row.label}`}
-                            style={{
-                              display: "grid",
-                              gridTemplateColumns: "minmax(120px, 1fr) repeat(4, minmax(90px, auto))",
-                              gap: 12,
-                              alignItems: "center",
-                              padding: "12px 14px",
-                              background: "rgba(255,255,255,0.02)",
-                              borderRadius: 12,
-                              border: "1px solid rgba(255,255,255,0.04)",
-                            }}
-                          >
-                            <span style={{ fontSize: 13, fontWeight: 600 }}>{row.label}</span>
-                            <span style={{ fontSize: 12, color: "#2ecc71" }}>Income {formatCurrency(row.income)}</span>
-                            <span style={{ fontSize: 12, color: "#e74c3c" }}>Spent {formatCurrency(row.spent)}</span>
-                            <span style={{ fontSize: 12, color: row.net >= 0 ? "#2ecc71" : "#f39c12" }}>
-                              Net {row.net >= 0 ? formatCurrency(row.net) : `-${formatCurrency(row.net)}`}
-                            </span>
-                            <span style={{ fontSize: 12, color: "#a09888" }}>{row.count} transactions</span>
-                          </div>
-                        ))}
+                        {section.rows.map((row, idx) => {
+                          const periodKey = section.type === "monthly" ? `${row.label.split(" ").reverse().join("-")}` : row.label;
+                          const isExpanded = expandedReportPeriod === `${section.type}-${periodKey}`;
+                          const periodSpending = getSpendingForPeriod(periodKey, section.type);
+                          const periodIncome = getIncomeForPeriod(periodKey, section.type);
+                          const categoryBreakdown = getCategoryBreakdownForPeriod(periodKey, section.type);
+                          const maxCatValueForPeriod = Math.max(...categoryBreakdown.map((c) => c.value), 1);
+                          const totalSpentInPeriod = periodSpending.reduce((s, t) => s + Math.abs(t.amount), 0);
+
+                          return (
+                            <div key={`${section.title}-${row.label}`}>
+                              <div
+                                onClick={() => setExpandedReportPeriod(isExpanded ? null : `${section.type}-${periodKey}`)}
+                                style={{
+                                  display: "grid",
+                                  gridTemplateColumns: "minmax(120px, 1fr) repeat(4, minmax(90px, auto))",
+                                  gap: 12,
+                                  alignItems: "center",
+                                  padding: "12px 14px",
+                                  background: "rgba(255,255,255,0.02)",
+                                  borderRadius: 12,
+                                  border: isExpanded ? "1px solid rgba(231,76,60,0.3)" : "1px solid rgba(255,255,255,0.04)",
+                                  cursor: "pointer",
+                                  transition: "all 0.2s",
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.04)"}
+                                onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.02)"}
+                              >
+                                <span style={{ fontSize: 13, fontWeight: 600 }}>{row.label} {isExpanded ? "▼" : "▶"}</span>
+                                <span style={{ fontSize: 12, color: "#2ecc71" }}>Income {formatCurrency(row.income)}</span>
+                                <span style={{ fontSize: 12, color: "#e74c3c" }}>Spent {formatCurrency(row.spent)}</span>
+                                <span style={{ fontSize: 12, color: row.net >= 0 ? "#2ecc71" : "#f39c12" }}>
+                                  Net {row.net >= 0 ? formatCurrency(row.net) : `-${formatCurrency(row.net)}`}
+                                </span>
+                                <span style={{ fontSize: 12, color: "#a09888" }}>{row.count} transactions</span>
+                              </div>
+
+                              {isExpanded && (
+                                <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
+                                  {/* Income Sources */}
+                                  {periodIncome.length > 0 && (
+                                    <div style={{ background: "rgba(46,204,113,0.06)", border: "1px solid rgba(46,204,113,0.15)", borderRadius: 12, padding: 16 }}>
+                                      <p style={{ color: "#2ecc71", fontSize: 12, fontWeight: 600, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                                        Income Sources
+                                      </p>
+                                      <div style={{ display: "grid", gap: 6 }}>
+                                        {periodIncome.sort((a, b) => b.amount - a.amount).map((t, i) => (
+                                          <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "rgba(255,255,255,0.02)", borderRadius: 8, fontSize: 13 }}>
+                                            <div>
+                                              <div style={{ color: "#f0ece4", marginBottom: 4 }}>{t.description}</div>
+                                              <div style={{ color: "#665e52", fontSize: 11 }}>{t.date.toLocaleDateString()}</div>
+                                            </div>
+                                            <span style={{ color: "#2ecc71", fontWeight: 600 }}>+${t.amount.toFixed(2)}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Category Breakdown */}
+                                  {categoryBreakdown.length > 0 && (
+                                    <div style={{ background: "rgba(231,76,60,0.06)", border: "1px solid rgba(231,76,60,0.15)", borderRadius: 12, padding: 16 }}>
+                                      <p style={{ color: "#e74c3c", fontSize: 12, fontWeight: 600, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                                        Spending by Category
+                                      </p>
+                                      <div style={{ display: "grid", gap: 8 }}>
+                                        {categoryBreakdown.map((cat, i) => (
+                                          <div key={cat.name} style={{ display: "grid", gridTemplateColumns: "140px 1fr 100px", gap: 12, alignItems: "center" }}>
+                                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                              <div style={{ width: 8, height: 8, borderRadius: "50%", background: cat.color, flexShrink: 0 }} />
+                                              <span style={{ fontSize: 12, color: "#a09888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat.name}</span>
+                                            </div>
+                                            <MiniBar value={cat.value} max={maxCatValueForPeriod} color={cat.color} />
+                                            <div style={{ textAlign: "right" }}>
+                                              <div style={{ fontSize: 12, fontWeight: 600, color: cat.color }}>${cat.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                                              <div style={{ fontSize: 10, color: "#665e52" }}>({((cat.value / totalSpentInPeriod) * 100).toFixed(1)}%)</div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Transactions with Category Editing */}
+                                  {periodSpending.length > 0 && (
+                                    <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 12, padding: "0", overflow: "hidden" }}>
+                                      <div style={{ padding: 16, borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                                        <p style={{ color: "#786e60", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                                          Transactions ({periodSpending.length})
+                                        </p>
+                                      </div>
+                                      <div style={{ overflowX: "auto", maxHeight: 400, overflowY: "auto" }}>
+                                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                                          <thead style={{ position: "sticky", top: 0, background: "#0f0e0c" }}>
+                                            <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                                              <th style={{ padding: "12px 16px", textAlign: "left", color: "#786e60", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em" }}>Date</th>
+                                              <th style={{ padding: "12px 16px", textAlign: "left", color: "#786e60", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em" }}>Description</th>
+                                              <th style={{ padding: "12px 16px", textAlign: "left", color: "#786e60", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em" }}>Category</th>
+                                              <th style={{ padding: "12px 16px", textAlign: "right", color: "#786e60", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em" }}>Amount</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {periodSpending.sort((a, b) => b.amount - a.amount).map((t, i) => (
+                                              <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}
+                                                onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.02)"}
+                                                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                                              >
+                                                <td style={{ padding: "10px 16px", color: "#a09888", whiteSpace: "nowrap", fontSize: 11 }}>{t.date.toLocaleDateString()}</td>
+                                                <td style={{ padding: "10px 16px", maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }}>{t.description}</td>
+                                                <td style={{ padding: "10px 16px", minWidth: 140 }}>
+                                                  <select
+                                                    value={t.category}
+                                                    onChange={(e) => handleCategoryAssign(t, e.target.value)}
+                                                    style={{
+                                                      background: "rgba(255,255,255,0.04)",
+                                                      border: "1px solid rgba(255,255,255,0.08)",
+                                                      borderRadius: 6,
+                                                      padding: "5px 8px",
+                                                      color: "#f0ece4",
+                                                      fontSize: 10,
+                                                      fontFamily: "'DM Sans', sans-serif",
+                                                      cursor: "pointer",
+                                                    }}
+                                                  >
+                                                    {CATEGORY_OPTIONS.map((option) => (
+                                                      <option key={option} value={option}>
+                                                        {option}
+                                                      </option>
+                                                    ))}
+                                                  </select>
+                                                </td>
+                                                <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 600, color: "#e74c3c", fontVariantNumeric: "tabular-nums", fontSize: 11 }}>-${Math.abs(t.amount).toFixed(2)}</td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

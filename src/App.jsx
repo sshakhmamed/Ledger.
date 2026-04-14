@@ -362,6 +362,7 @@ export default function FinanceDashboard() {
   const [sortDir, setSortDir] = useState(-1);
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedReportPeriod, setExpandedReportPeriod] = useState(null);
+  const [showEmptyCategories, setShowEmptyCategories] = useState(false);
   const [pdfPreviewPeriod, setPdfPreviewPeriod] = useState(null);
   const [learnedCategories, setLearnedCategories] = useState(() => {
     if (typeof window === "undefined") return {};
@@ -671,16 +672,30 @@ export default function FinanceDashboard() {
   const income = useMemo(() => transactions.filter((t) => t.amount > 0 && (t.category === "Payroll" || t.category === "Deposits" || t.type === "ACH_CREDIT" || t.type === "CHECK_DEPOSIT" || t.type === "QUICKPAY_CREDIT" || t.type === "PARTNERFI_TO_CHASE")), [transactions]);
   const incomeTransactions = useMemo(() => transactions.filter((t) => t.amount > 0), [transactions]);
 
+  // Single source of truth for all category names — same list that feeds every dropdown
+  const allCategoryOptions = useMemo(() =>
+    Array.from(new Set([
+      ...DEFAULT_CATEGORY_OPTIONS.filter(o => o !== "Other"),
+      ...customCategoryRules.map(r => r.name),
+      "Other",
+    ])).sort((a, b) => a === "Other" ? 1 : b === "Other" ? -1 : a.localeCompare(b)),
+  [customCategoryRules]);
+
   const categoryTotals = useMemo(() => {
+    // Build spending map from transactions
     const map = {};
     spending.forEach((t) => {
       if (!map[t.category]) map[t.category] = 0;
       map[t.category] += Math.abs(t.amount);
     });
-    return Object.entries(map)
-      .map(([name, value], i) => ({ name, value: Math.round(value * 100) / 100, color: COLORS[i % COLORS.length] }))
+    // Canonical list = allCategoryOptions + any organic categories from old data not yet in the list
+    const organicExtras = Object.keys(map).filter(name => !allCategoryOptions.includes(name));
+    const allNames = [...allCategoryOptions.filter(n => n !== "Other"), ...organicExtras, "Other"];
+    // Assign stable colors by name position so a category always gets the same color
+    return allNames
+      .map((name, i) => ({ name, value: Math.round((map[name] || 0) * 100) / 100, color: COLORS[i % COLORS.length] }))
       .sort((a, b) => b.value - a.value);
-  }, [spending]);
+  }, [spending, allCategoryOptions]);
 
   const maxCatValue = useMemo(() => Math.max(...categoryTotals.map((c) => c.value), 1), [categoryTotals]);
 
@@ -737,14 +752,6 @@ export default function FinanceDashboard() {
       .filter((r) => r.consistent && r.count >= 2)
       .sort((a, b) => b.avg - a.avg);
   }, [transactions]);
-
-  const allCategoryOptions = useMemo(() =>
-    Array.from(new Set([
-      ...DEFAULT_CATEGORY_OPTIONS.filter(o => o !== "Other"),
-      ...customCategoryRules.map(r => r.name),
-      "Other",
-    ])).sort((a, b) => a === "Other" ? 1 : b === "Other" ? -1 : a.localeCompare(b)),
-  [customCategoryRules]);
 
   const handleAddCustomCategory = useCallback(() => {
     const name = newCategoryName.trim();
@@ -1139,27 +1146,47 @@ export default function FinanceDashboard() {
 
             {activeTab === "categories" && (
               <div style={{ animation: "fadeUp 0.4s ease" }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+                  <button
+                    onClick={() => setShowEmptyCategories(v => !v)}
+                    style={{ background: "none", border: "none", color: "#665e52", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", padding: "4px 0" }}
+                  >
+                    {showEmptyCategories ? "Hide empty categories" : `Show all (${categoryTotals.filter(c => c.value === 0).length} empty)`}
+                  </button>
+                </div>
                 <div style={{ display: "grid", gap: 8 }}>
-                  {categoryTotals.map((cat, i) => (
-                    <div
-                      key={cat.name}
-                      style={{
-                        ...cardStyle, padding: "16px 20px", cursor: "pointer", display: "grid",
-                        gridTemplateColumns: "200px 1fr 100px 60px", alignItems: "center", gap: 16,
-                        animation: `fadeUp 0.3s ease ${i * 0.04}s both`,
-                        border: selectedCategory === cat.name ? `1px solid ${cat.color}44` : cardStyle.border,
-                      }}
-                      onClick={() => { setSelectedCategory(cat.name); setActiveTab("transactions"); }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <div style={{ width: 10, height: 10, borderRadius: "50%", background: cat.color, flexShrink: 0 }} />
-                        <span style={{ fontSize: 14, fontWeight: 600 }}>{cat.name}</span>
-                      </div>
-                      <MiniBar value={cat.value} max={maxCatValue} color={cat.color} />
-                      <span style={{ fontSize: 15, fontWeight: 700, textAlign: "right", color: cat.color }}>${cat.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                      <span style={{ fontSize: 11, color: "#665e52", textAlign: "right" }}>{((cat.value / totalSpent) * 100).toFixed(1)}%</span>
-                    </div>
-                  ))}
+                  {categoryTotals
+                    .filter(cat => showEmptyCategories || cat.value > 0)
+                    .map((cat, i) => {
+                      const isEmpty = cat.value === 0;
+                      return (
+                        <div
+                          key={cat.name}
+                          style={{
+                            ...cardStyle, padding: "16px 20px",
+                            cursor: isEmpty ? "default" : "pointer",
+                            display: "grid",
+                            gridTemplateColumns: "200px 1fr 100px 60px", alignItems: "center", gap: 16,
+                            animation: `fadeUp 0.3s ease ${i * 0.04}s both`,
+                            border: selectedCategory === cat.name ? `1px solid ${cat.color}44` : cardStyle.border,
+                            opacity: isEmpty ? 0.35 : 1,
+                          }}
+                          onClick={() => { if (!isEmpty) { setSelectedCategory(cat.name); setActiveTab("transactions"); } }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <div style={{ width: 10, height: 10, borderRadius: "50%", background: isEmpty ? "#504840" : cat.color, flexShrink: 0 }} />
+                            <span style={{ fontSize: 14, fontWeight: 600, color: isEmpty ? "#665e52" : "#f0ece4" }}>{cat.name}</span>
+                          </div>
+                          <MiniBar value={cat.value} max={maxCatValue} color={cat.color} />
+                          <span style={{ fontSize: 15, fontWeight: 700, textAlign: "right", color: isEmpty ? "#504840" : cat.color }}>
+                            {isEmpty ? "—" : `$${cat.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                          </span>
+                          <span style={{ fontSize: 11, color: "#665e52", textAlign: "right" }}>
+                            {isEmpty ? "0%" : `${((cat.value / totalSpent) * 100).toFixed(1)}%`}
+                          </span>
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
             )}

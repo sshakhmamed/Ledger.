@@ -58,8 +58,14 @@ function normalizeAccountName(name) {
 }
 
 function getTransactionFingerprint(transaction) {
+  let dateKey = "";
+  if (transaction?.date) {
+    const parsed = transaction.date instanceof Date ? transaction.date : new Date(transaction.date);
+    const ms = parsed.getTime();
+    if (!Number.isNaN(ms)) dateKey = parsed.toISOString().slice(0, 10);
+  }
   return [
-    transaction.date?.toISOString?.().slice(0, 10) || "",
+    dateKey,
     String(transaction.description || "").trim().toLowerCase(),
     Number(transaction.amount || 0).toFixed(2),
     normalizeAccountName(transaction.account).toLowerCase(),
@@ -828,7 +834,12 @@ export default function FinanceDashboard() {
   const topMerchants = useMemo(() => {
     const map = {};
     spending.forEach((t) => {
-      const name = t.description.split(/\s{2,}/)[0].replace(/[0-9#*]+/g, "").trim().substring(0, 30);
+      const name = String(t.description || "")
+        .split(/\s{2,}/)[0]
+        .replace(/[0-9#*]+/g, "")
+        .trim()
+        .substring(0, 30);
+      if (!name) return;
       if (!map[name]) map[name] = { total: 0, count: 0 };
       map[name].total += Math.abs(t.amount);
       map[name].count++;

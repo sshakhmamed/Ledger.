@@ -1,29 +1,39 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 
 const CATEGORY_RULES = [
-  { category: "Groceries", keywords: ["grocery", "supermarket", "market", "whole foods", "aldi", "kroger", "meijer", "publix", "safeway", "trader joe", "costco", "sam's club", "walmart", "target"] },
+  { category: "Groceries", keywords: ["grocery", "supermarket", "whole foods", "aldi", "meijer", "publix", "safeway", "trader joe", "food lion", "stop & shop", "giant food", "h-e-b", "heb", "wegmans", "sprouts"] },
+  { category: "General Retail", keywords: ["walmart", "target", "kroger", "kohl", "kohls", "sam's club", "costco", "bj's wholesale", "dollar general", "dollar tree", "five below", "marshalls", "tj maxx", "tjmaxx", "ross stores", "tuesday morning", "big lots"] },
   { category: "Restaurants & Food", keywords: ["restaurant", "cafe", "coffee", "pizza", "burger", "grill", "bar", "bakery", "doordash", "uber eats", "grubhub", "chipotle", "domino", "taco bell", "subway", "starbucks", "mcdonald", "chick-fil-a"] },
-  { category: "Gas & Fuel", keywords: ["gas", "fuel", "shell", "speedway", "sheetz", "bp", "exxon", "mobil", "sunoco", "chevron", "marathon", "circle k gas", "wawa"] },
+  { category: "Gas & Fuel", keywords: ["shell", "speedway", "sheetz", "exxon", "mobil", "sunoco", "chevron", "marathon", "wawa fuel", "circle k gas", "bp gas", "fuel pump"] },
   { category: "Auto & Maintenance", keywords: ["valvoline", "auto parts", "o'reilly", "autozone", "advance auto", "firestone", "pep boys", "jiffy lube", "meineke", "midas", "mavis", "ntb", "car repair"] },
-  { category: "Subscriptions", keywords: ["subscription", "monthly", "annual", "netflix", "spotify", "hulu", "youtube premium", "disney", "patreon", "dropbox", "icloud", "google one", "chatgpt", "openai", "tradingview"] },
-  { category: "Phone & Internet", keywords: ["phone", "wireless", "mobile", "internet", "broadband", "comcast", "xfinity", "spectrum", "verizon", "at&t", "tmobile", "t-mobile"] },
-  { category: "Online", keywords: ["amazon", "ebay", "etsy", "shopify", "paypal", "stripe", "instacart", "walmart.com", "target.com", "bestbuy.com", "online purchase", "online order", "web payment"] },
-  { category: "Gaming", keywords: ["steam", "playstation", "xbox", "nintendo", "epic games", "riot games", "blizzard", "roblox", "minecraft", "game stop", "gamestop", "twitch", "discord nitro", "battle.net"] },
-  { category: "Insurance", keywords: ["insurance", "progressive", "geico", "state farm", "allstate", "liberty mutual"] },
-  { category: "Entertainment", keywords: ["movie", "theater", "cinema", "concert", "ticket", "museum", "theme park", "bowling", "arcade", "best buy", "burlington", "ross", "office depot", "home depot"] },
-  { category: "Transfers & Payments", keywords: ["zelle", "transfer", "payment", "credit card payment", "online payment", "venmo", "cash app", "paypal transfer", "ach transfer", "wire transfer"] },
+  { category: "Subscriptions", keywords: ["subscription", "netflix", "spotify", "hulu", "youtube premium", "disney+", "patreon", "dropbox", "icloud", "google one", "chatgpt", "openai", "tradingview", "apple one"] },
+  { category: "Phone & Internet", keywords: ["phone", "wireless", "mobile plan", "xfinity", "spectrum", "verizon wireless", "at&t wireless", "t-mobile", "tmobile plan", "metro pcs", "boost mobile"] },
+  { category: "Online Shopping", keywords: ["amazon", "ebay", "etsy", "shopify", "instacart", "walmart.com", "target.com", "bestbuy.com"] },
+  { category: "Gaming", keywords: ["steam", "playstation", "xbox", "nintendo", "epic games", "riot games", "blizzard", "roblox", "minecraft", "gamestop", "twitch", "discord nitro", "battle.net"] },
+  { category: "Insurance", keywords: ["insurance", "progressive", "geico", "state farm", "allstate", "liberty mutual", "aaa insurance", "nationwide ins", "travelers ins", "usaa"] },
+  { category: "Entertainment", keywords: ["movie", "theater", "cinema", "concert", "ticket", "museum", "theme park", "bowling", "arcade", "best buy", "ticketmaster"] },
+  { category: "Rent & Mortgage", keywords: ["rent", "mortgage", "lease payment", "landlord", "apartment", "hoa", "homeowners assoc", "condo fee", "property management"] },
+  { category: "Electric Bill", keywords: ["electric", "electricity", "duke energy", "dominion energy", "con edison", "pg&e", "pge electric", "entergy", "consumers energy", "nv energy", "evergy", "national grid electric", "eversource"] },
+  { category: "Water Bill", keywords: ["water bill", "water utility", "water service", "sewer", "waste water", "city water", "municipal water", "american water"] },
+  { category: "Gas Bill", keywords: ["gas bill", "natural gas", "national grid gas", "columbia gas", "nicor gas", "peoples gas", "atmos energy", "piedmont natural gas", "southwest gas", "spire energy"] },
+  { category: "Car Payment", keywords: ["car payment", "auto loan", "vehicle payment", "toyota financial", "honda financial", "ford motor credit", "gm financial", "ally financial", "carmax auto", "bmw financial", "mercedes financial", "nissan motor"] },
+  { category: "Debt Payment", keywords: ["student loan", "personal loan", "sallie mae", "navient", "sofi loan", "earnest loan", "discover personal", "lending club", "prosper loan", "loan repayment"] },
+  { category: "Credit Card Payment", keywords: ["credit card pmt", "credit card pay", "chase card", "amex payment", "american express pmt", "capital one pmt", "citi payment", "discover payment", "boa credit", "wells fargo card", "barclays", "synchrony"] },
+  { category: "Transfers & Payments", keywords: ["zelle", "transfer", "venmo", "cash app", "paypal transfer", "ach transfer", "wire transfer", "online payment", "online transfer"] },
   { category: "Car Wash", keywords: ["car wash", "wash express", "wash club"] },
-  { category: "Gas Station Snacks", keywords: ["convenience", "snack", "7-eleven", "circle k", "quick mart"] },
-  { category: "Education", keywords: ["tuition", "university", "college", "school", "course", "udemy", "coursera", "student loan", "textbook"] },
+  { category: "Gas Station Snacks", keywords: ["7-eleven", "circle k", "wawa snack", "quick mart", "quick trip", "quiktrip"] },
+  { category: "Education", keywords: ["tuition", "university", "college", "school", "course", "udemy", "coursera", "textbook", "chegg"] },
   { category: "Government & Taxes", keywords: ["irs", "tax", "dmv", "bureau of motor", "usps", "city of", "county", "state of", "department of taxation"] },
   { category: "Payroll", keywords: ["payroll", "salary", "direct deposit", "employer", "wages"] },
   { category: "Deposits", keywords: ["deposit", "check deposit", "cash deposit", "remote deposit"] },
-  { category: "Medical & Personal", keywords: ["pharmacy", "walgreens", "cvs", "doctor", "hospital", "dental", "vision", "clinic", "urgent care"] },
-  { category: "Clothing", keywords: ["clothing", "apparel", "shoe", "shoes", "nike", "adidas", "old navy", "gap", "h&m", "zara", "macy"] },
+  { category: "Medical & Personal", keywords: ["pharmacy", "walgreens", "cvs", "doctor", "hospital", "dental", "vision", "clinic", "urgent care", "optometrist", "dermatology"] },
+  { category: "Clothing", keywords: ["clothing", "apparel", "shoe", "shoes", "nike", "adidas", "old navy", "gap", "h&m", "zara", "macy", "nordstrom", "tjmaxx", "marshall"] },
+  { category: "Home & Garden", keywords: ["home depot", "lowe's", "lowes", "ikea", "bed bath", "wayfair", "hardware", "garden center", "ace hardware"] },
 ];
 
 const LEARNED_CATEGORIES_STORAGE_KEY = "finance-dashboard-learned-categories";
-const CATEGORY_OPTIONS = Array.from(new Set([...CATEGORY_RULES.map((rule) => rule.category), "Other"]));
+const CUSTOM_CATEGORIES_STORAGE_KEY = "finance-dashboard-custom-categories";
+const DEFAULT_CATEGORY_OPTIONS = Array.from(new Set([...CATEGORY_RULES.map((rule) => rule.category), "Other"]));
 
 function normalizeTransactionKey(description) {
   return String(description || "")
@@ -35,11 +45,17 @@ function normalizeTransactionKey(description) {
     .substring(0, 60);
 }
 
-function categorize(description, learnedCategories = {}) {
+function categorize(description, learnedCategories = {}, customRules = []) {
   const learnedCategory = learnedCategories[normalizeTransactionKey(description)];
   if (learnedCategory) return learnedCategory;
 
   const lower = description.toLowerCase();
+  // User-defined rules take priority over defaults
+  for (const rule of customRules) {
+    for (const kw of rule.keywords) {
+      if (kw && lower.includes(kw.toLowerCase())) return rule.name;
+    }
+  }
   for (const rule of CATEGORY_RULES) {
     for (const kw of rule.keywords) {
       if (lower.includes(kw)) return rule.category;
@@ -144,7 +160,7 @@ function parseCSVRows(text) {
   return parsedRows;
 }
 
-function parseCSV(text, learnedCategories = {}) {
+function parseCSV(text, learnedCategories = {}, customRules = []) {
   const parsedRows = parseCSVRows(text);
   if (parsedRows.length < 2) {
     throw new Error("This CSV does not contain enough rows to import.");
@@ -203,7 +219,7 @@ function parseCSV(text, learnedCategories = {}) {
       memo,
       category: category && category !== "Other"
         ? category
-        : categorize(description, learnedCategories),
+        : categorize(description, learnedCategories, customRules),
     });
   }
 
@@ -342,26 +358,36 @@ export default function FinanceDashboard() {
       return {};
     }
   });
+  const [customCategoryRules, setCustomCategoryRules] = useState(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = window.localStorage.getItem(CUSTOM_CATEGORIES_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryKeywords, setNewCategoryKeywords] = useState("");
   const uploadInputRef = useRef(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-
     try {
-      window.localStorage.setItem(
-        LEARNED_CATEGORIES_STORAGE_KEY,
-        JSON.stringify(learnedCategories)
-      );
-    } catch {
-      // Ignore storage failures so the dashboard still works without persistence.
-    }
+      window.localStorage.setItem(LEARNED_CATEGORIES_STORAGE_KEY, JSON.stringify(learnedCategories));
+    } catch {}
   }, [learnedCategories]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(CUSTOM_CATEGORIES_STORAGE_KEY, JSON.stringify(customCategoryRules));
+    } catch {}
+  }, [customCategoryRules]);
 
   const handleFile = useCallback((file) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const parsed = parseCSV(e.target.result, learnedCategories);
+        const parsed = parseCSV(e.target.result, learnedCategories, customCategoryRules);
         setTransactions(parsed);
         setImportError("");
         setActiveTab("overview");
@@ -373,7 +399,7 @@ export default function FinanceDashboard() {
       setImportError("The selected file could not be read. Please try again with a different CSV.");
     };
     reader.readAsText(file);
-  }, [learnedCategories]);
+  }, [learnedCategories, customCategoryRules]);
 
   const handleDrop = useCallback((e) => {
     e.preventDefault();
@@ -675,6 +701,30 @@ export default function FinanceDashboard() {
       .filter((r) => r.consistent && r.count >= 2)
       .sort((a, b) => b.avg - a.avg);
   }, [transactions]);
+
+  const allCategoryOptions = useMemo(() =>
+    Array.from(new Set([
+      ...DEFAULT_CATEGORY_OPTIONS.filter(o => o !== "Other"),
+      ...customCategoryRules.map(r => r.name),
+      "Other",
+    ])).sort((a, b) => a === "Other" ? 1 : b === "Other" ? -1 : a.localeCompare(b)),
+  [customCategoryRules]);
+
+  const handleAddCustomCategory = useCallback(() => {
+    const name = newCategoryName.trim();
+    if (!name) return;
+    const keywords = newCategoryKeywords.split(",").map(k => k.trim().toLowerCase()).filter(Boolean);
+    setCustomCategoryRules(prev => {
+      if (prev.some(r => r.name.toLowerCase() === name.toLowerCase())) return prev;
+      return [...prev, { name, keywords }];
+    });
+    setNewCategoryName("");
+    setNewCategoryKeywords("");
+  }, [newCategoryName, newCategoryKeywords]);
+
+  const handleDeleteCustomCategory = useCallback((name) => {
+    setCustomCategoryRules(prev => prev.filter(r => r.name !== name));
+  }, []);
 
   const learnedRules = useMemo(() => Object.entries(learnedCategories)
     .map(([merchantKey, category]) => ({ merchantKey, category }))
@@ -1136,7 +1186,7 @@ export default function FinanceDashboard() {
                                   <option value="" disabled style={{ background: "#1c1a17", color: "#f0ece4" }}>
                                     Categorize
                                   </option>
-                                  {CATEGORY_OPTIONS.map((option) => (
+                                  {allCategoryOptions.map((option) => (
                                     <option key={option} value={option} style={{ background: "#1c1a17", color: "#f0ece4" }}>
                                       {option}
                                     </option>
@@ -1223,7 +1273,7 @@ export default function FinanceDashboard() {
                               fontFamily: "'DM Sans', sans-serif",
                             }}
                           >
-                            {CATEGORY_OPTIONS.map((option) => (
+                            {allCategoryOptions.map((option) => (
                               <option key={option} value={option} style={{ background: "#1c1a17", color: "#f0ece4" }}>
                                 {option}
                               </option>
@@ -1243,6 +1293,70 @@ export default function FinanceDashboard() {
                               fontWeight: 600,
                               fontFamily: "'DM Sans', sans-serif",
                             }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Custom Categories */}
+                <div style={cardStyle}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+                    <div>
+                      <p style={{ color: "#786e60", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>Custom Categories</p>
+                      <p style={{ color: "#665e52", fontSize: 12 }}>Create your own categories with keywords for automatic matching on import.</p>
+                    </div>
+                    <span style={{ color: "#665e52", fontSize: 12 }}>{customCategoryRules.length} custom</span>
+                  </div>
+
+                  {/* Add form */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10, marginBottom: customCategoryRules.length > 0 ? 16 : 0, alignItems: "flex-end" }}>
+                    <div>
+                      <p style={{ fontSize: 10, color: "#786e60", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Category Name</p>
+                      <input
+                        type="text"
+                        placeholder="e.g. Pet Supplies"
+                        value={newCategoryName}
+                        onChange={(e) => setNewCategoryName(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleAddCustomCategory()}
+                        style={{ width: "100%", background: "#1c1a17", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "9px 12px", color: "#f0ece4", fontSize: 12, fontFamily: "'DM Sans', sans-serif", outline: "none" }}
+                      />
+                    </div>
+                    <div>
+                      <p style={{ fontSize: 10, color: "#786e60", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Keywords <span style={{ color: "#504840", fontWeight: 400 }}>(comma-separated)</span></p>
+                      <input
+                        type="text"
+                        placeholder="e.g. petco, petsmart, chewy"
+                        value={newCategoryKeywords}
+                        onChange={(e) => setNewCategoryKeywords(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleAddCustomCategory()}
+                        style={{ width: "100%", background: "#1c1a17", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "9px 12px", color: "#f0ece4", fontSize: 12, fontFamily: "'DM Sans', sans-serif", outline: "none" }}
+                      />
+                    </div>
+                    <button
+                      onClick={handleAddCustomCategory}
+                      disabled={!newCategoryName.trim()}
+                      style={{ padding: "9px 18px", borderRadius: 8, border: "none", background: newCategoryName.trim() ? "rgba(52,152,219,0.18)" : "rgba(255,255,255,0.04)", color: newCategoryName.trim() ? "#7fc7ff" : "#504840", fontSize: 12, fontWeight: 600, cursor: newCategoryName.trim() ? "pointer" : "not-allowed", fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}
+                    >
+                      + Add
+                    </button>
+                  </div>
+
+                  {/* Custom category list */}
+                  {customCategoryRules.length > 0 && (
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {customCategoryRules.map((rule) => (
+                        <div key={rule.name} style={{ display: "grid", gridTemplateColumns: "minmax(140px, auto) 1fr auto", gap: 12, alignItems: "center", padding: "10px 14px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 10 }}>
+                          <p style={{ fontSize: 13, fontWeight: 600, color: "#f0ece4" }}>{rule.name}</p>
+                          <p style={{ fontSize: 11, color: "#504840", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {rule.keywords.length > 0 ? rule.keywords.join(", ") : <span style={{ color: "#3a3228", fontStyle: "italic" }}>no keywords — assign manually per transaction</span>}
+                          </p>
+                          <button
+                            onClick={() => handleDeleteCustomCategory(rule.name)}
+                            style={{ background: "rgba(231,76,60,0.1)", border: "1px solid rgba(231,76,60,0.2)", borderRadius: 7, padding: "6px 12px", color: "#e74c3c", cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}
                           >
                             Delete
                           </button>
@@ -1451,7 +1565,7 @@ export default function FinanceDashboard() {
                                                       cursor: "pointer",
                                                     }}
                                                   >
-                                                    {CATEGORY_OPTIONS.map((option) => (
+                                                    {allCategoryOptions.map((option) => (
                                                       <option key={option} value={option} style={{ background: "#1c1a17", color: "#f0ece4" }}>
                                                         {option}
                                                       </option>

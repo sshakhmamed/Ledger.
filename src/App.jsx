@@ -92,7 +92,12 @@ function stdDev(values) {
 }
 
 function daysBetween(a, b) {
-  return Math.abs((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24));
+  const dateA = a instanceof Date ? a : new Date(a);
+  const dateB = b instanceof Date ? b : new Date(b);
+  const msA = dateA.getTime();
+  const msB = dateB.getTime();
+  if (Number.isNaN(msA) || Number.isNaN(msB)) return NaN;
+  return Math.abs((msA - msB) / (1000 * 60 * 60 * 24));
 }
 
 function normalizeTransactionKey(description) {
@@ -835,7 +840,10 @@ export default function FinanceDashboard() {
     const map = {};
     transactions.forEach((t) => {
       if (t.amount >= 0) return;
-      const name = t.description.split(/\s{2,}/)[0].replace(/[0-9#*]+/g, "").trim().substring(0, 30);
+      const safeDescription = String(t.description || "").trim();
+      if (!safeDescription) return;
+      const name = safeDescription.split(/\s{2,}/)[0].replace(/[0-9#*]+/g, "").trim().substring(0, 30);
+      if (!name) return;
       if (!map[name]) map[name] = [];
       map[name].push({ amount: Math.abs(t.amount), date: t.date });
     });
@@ -850,8 +858,10 @@ export default function FinanceDashboard() {
 
         const intervals = [];
         for (let i = 1; i < sorted.length; i++) {
-          intervals.push(daysBetween(sorted[i].date, sorted[i - 1].date));
+          const intervalDays = daysBetween(sorted[i].date, sorted[i - 1].date);
+          if (!Number.isNaN(intervalDays)) intervals.push(intervalDays);
         }
+        if (!intervals.length) return null;
         const avgInterval = average(intervals);
         const intervalStd = stdDev(intervals);
         const intervalCv = avgInterval > 0 ? intervalStd / avgInterval : 1;
@@ -879,6 +889,7 @@ export default function FinanceDashboard() {
           monthlyEquivalent: Math.round(monthlyEquivalent * 100) / 100,
         };
       })
+      .filter(Boolean)
       .filter((r) => r.cadence !== "Irregular" && r.confidence >= 0.55)
       .sort((a, b) => b.monthlyEquivalent - a.monthlyEquivalent);
   }, [transactions]);

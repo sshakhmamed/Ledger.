@@ -32,15 +32,18 @@ Filtered transactions can be exported as CSV.
 ### 10. Transaction Notes
 Per-transaction editable notes are implemented and persisted locally.
 
+### 11. Advanced Recurring Detection (v2)
+Recurring charge detection now supports monthly/biweekly cadence detection, confidence scoring, and normalized monthly-equivalent totals in Insights.
+
 ---
 
 ## High Impact
 
-### 1. Advanced Recurring Detection
-Improve recurring detection with calendar-awareness (monthly/bi-weekly intervals, amount tolerance, and occasional misses) and add explicit confidence scoring.
-
-### 2. Budget Alerts & Forecasting
+### 1. Budget Alerts & Forecasting
 Add "projected end-of-month" budget status and alerts when spend pace suggests likely over-budget outcomes.
+
+### 2. Subscription Governance
+Add explicit "keep / review / cancel" status for detected recurring charges and track user decisions over time.
 
 ---
 

@@ -34,6 +34,7 @@ const CATEGORY_RULES = [
 const LEARNED_CATEGORIES_STORAGE_KEY = "finance-dashboard-learned-categories";
 const CUSTOM_CATEGORIES_STORAGE_KEY = "finance-dashboard-custom-categories";
 const TRANSACTIONS_STORAGE_KEY = "finance-dashboard-transactions";
+const BUDGETS_STORAGE_KEY = "finance-dashboard-budgets";
 const DEFAULT_CATEGORY_OPTIONS = Array.from(new Set([...CATEGORY_RULES.map((rule) => rule.category), "Other"]));
 
 function deserializeTransactions(raw) {
@@ -383,6 +384,15 @@ export default function FinanceDashboard() {
   });
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryKeywords, setNewCategoryKeywords] = useState("");
+  const [budgets, setBudgets] = useState(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const saved = window.localStorage.getItem(BUDGETS_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
+  const [editingBudget, setEditingBudget] = useState(null);
+  const [budgetInput, setBudgetInput] = useState("");
   const uploadInputRef = useRef(null);
 
   useEffect(() => {
@@ -411,6 +421,13 @@ export default function FinanceDashboard() {
       window.localStorage.setItem(CUSTOM_CATEGORIES_STORAGE_KEY, JSON.stringify(customCategoryRules));
     } catch {}
   }, [customCategoryRules]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(BUDGETS_STORAGE_KEY, JSON.stringify(budgets));
+    } catch {}
+  }, [budgets]);
 
   const handleFile = useCallback((file) => {
     const reader = new FileReader();
@@ -698,6 +715,13 @@ export default function FinanceDashboard() {
   }, [spending, allCategoryOptions]);
 
   const maxCatValue = useMemo(() => Math.max(...categoryTotals.map((c) => c.value), 1), [categoryTotals]);
+
+  const avgMonthlyCategorySpend = useMemo(() => {
+    const numMonths = monthlyData.length || 1;
+    const result = {};
+    categoryTotals.forEach((cat) => { result[cat.name] = cat.value / numMonths; });
+    return result;
+  }, [categoryTotals, monthlyData]);
 
   const totalSpent = useMemo(() => spending.reduce((s, t) => s + Math.abs(t.amount), 0), [spending]);
   const totalIncome = useMemo(() => income.reduce((s, t) => s + t.amount, 0), [income]);
@@ -1159,6 +1183,12 @@ export default function FinanceDashboard() {
                     .filter(cat => showEmptyCategories || cat.value > 0)
                     .map((cat, i) => {
                       const isEmpty = cat.value === 0;
+                      const budget = budgets[cat.name];
+                      const monthlyAvg = avgMonthlyCategorySpend[cat.name] || 0;
+                      const budgetPct = budget ? Math.min((monthlyAvg / budget) * 100, 999) : 0;
+                      const budgetColor = budgetPct >= 100 ? "#e74c3c" : budgetPct >= 80 ? "#f39c12" : "#2ecc71";
+                      const isEditingThisBudget = editingBudget === cat.name;
+
                       return (
                         <div
                           key={cat.name}
@@ -1166,24 +1196,92 @@ export default function FinanceDashboard() {
                             ...cardStyle, padding: "16px 20px",
                             cursor: isEmpty ? "default" : "pointer",
                             display: "grid",
-                            gridTemplateColumns: "200px 1fr 100px 60px", alignItems: "center", gap: 16,
+                            gridTemplateColumns: "minmax(160px, 200px) 1fr 100px 56px minmax(160px, 200px)",
+                            alignItems: "center", gap: 16,
                             animation: `fadeUp 0.3s ease ${i * 0.04}s both`,
                             border: selectedCategory === cat.name ? `1px solid ${cat.color}44` : cardStyle.border,
                             opacity: isEmpty ? 0.35 : 1,
                           }}
-                          onClick={() => { if (!isEmpty) { setSelectedCategory(cat.name); setActiveTab("transactions"); } }}
+                          onClick={() => { if (!isEmpty && !isEditingThisBudget) { setSelectedCategory(cat.name); setActiveTab("transactions"); } }}
                         >
+                          {/* Name */}
                           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                             <div style={{ width: 10, height: 10, borderRadius: "50%", background: isEmpty ? "#504840" : cat.color, flexShrink: 0 }} />
                             <span style={{ fontSize: 14, fontWeight: 600, color: isEmpty ? "#665e52" : "#f0ece4" }}>{cat.name}</span>
                           </div>
+
+                          {/* Spend bar */}
                           <MiniBar value={cat.value} max={maxCatValue} color={cat.color} />
+
+                          {/* Total spent */}
                           <span style={{ fontSize: 15, fontWeight: 700, textAlign: "right", color: isEmpty ? "#504840" : cat.color }}>
                             {isEmpty ? "—" : `$${cat.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
                           </span>
+
+                          {/* % of total */}
                           <span style={{ fontSize: 11, color: "#665e52", textAlign: "right" }}>
                             {isEmpty ? "0%" : `${((cat.value / totalSpent) * 100).toFixed(1)}%`}
                           </span>
+
+                          {/* Budget column */}
+                          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            {isEditingThisBudget ? (
+                              <form
+                                onSubmit={(e) => {
+                                  e.preventDefault();
+                                  const val = parseFloat(budgetInput);
+                                  if (!isNaN(val) && val > 0) {
+                                    setBudgets(prev => ({ ...prev, [cat.name]: val }));
+                                  } else if (budgetInput === "") {
+                                    setBudgets(prev => { const n = { ...prev }; delete n[cat.name]; return n; });
+                                  }
+                                  setEditingBudget(null);
+                                  setBudgetInput("");
+                                }}
+                                style={{ display: "flex", gap: 6, alignItems: "center" }}
+                              >
+                                <span style={{ fontSize: 10, color: "#786e60" }}>$/mo</span>
+                                <input
+                                  autoFocus
+                                  type="number"
+                                  min="1"
+                                  placeholder={budget ? String(budget) : "e.g. 400"}
+                                  value={budgetInput}
+                                  onChange={(e) => setBudgetInput(e.target.value)}
+                                  style={{ width: 80, background: "#1c1a17", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 6, padding: "4px 8px", color: "#f0ece4", fontSize: 12, fontFamily: "'DM Sans', sans-serif", outline: "none" }}
+                                />
+                                <button type="submit" style={{ background: "rgba(46,204,113,0.16)", border: "1px solid rgba(46,204,113,0.3)", borderRadius: 6, padding: "4px 10px", color: "#2ecc71", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Set</button>
+                                <button type="button" onClick={() => { setEditingBudget(null); setBudgetInput(""); }} style={{ background: "none", border: "none", color: "#665e52", fontSize: 18, lineHeight: 1, cursor: "pointer", padding: "0 2px" }}>×</button>
+                              </form>
+                            ) : budget ? (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                  <span style={{ fontSize: 11, color: budgetColor, fontWeight: 600 }}>
+                                    ${monthlyAvg.toFixed(0)}<span style={{ color: "#504840", fontWeight: 400 }}> / ${budget}/mo</span>
+                                  </span>
+                                  <button
+                                    onClick={() => { setEditingBudget(cat.name); setBudgetInput(String(budget)); }}
+                                    style={{ background: "none", border: "none", color: "#504840", fontSize: 10, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", padding: "0 0 0 6px" }}
+                                  >
+                                    Edit
+                                  </button>
+                                </div>
+                                <div style={{ width: "100%", height: 5, background: "rgba(255,255,255,0.06)", borderRadius: 3 }}>
+                                  <div style={{ width: `${Math.min(budgetPct, 100)}%`, height: "100%", background: budgetColor, borderRadius: 3, transition: "width 0.5s ease" }} />
+                                </div>
+                                {budgetPct >= 100 && (
+                                  <span style={{ fontSize: 10, color: "#e74c3c" }}>Over budget by ${(monthlyAvg - budget).toFixed(0)}/mo avg</span>
+                                )}
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => { setEditingBudget(cat.name); setBudgetInput(""); }}
+                                style={{ background: "none", border: "none", color: "#504840", fontSize: 11, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", padding: 0, textAlign: "left" }}
+                              >
+                                + Set budget
+                              </button>
+                            )}
+                          </div>
                         </div>
                       );
                     })}

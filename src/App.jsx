@@ -331,6 +331,7 @@ export default function FinanceDashboard() {
   const [sortDir, setSortDir] = useState(-1);
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedReportPeriod, setExpandedReportPeriod] = useState(null);
+  const [pdfPreviewPeriod, setPdfPreviewPeriod] = useState(null);
   const [learnedCategories, setLearnedCategories] = useState(() => {
     if (typeof window === "undefined") return {};
 
@@ -469,6 +470,123 @@ export default function FinanceDashboard() {
       .map(([name, value], i) => ({ name, value: Math.round(value * 100) / 100, color: COLORS[i % COLORS.length] }))
       .sort((a, b) => b.value - a.value);
   }, [getSpendingForPeriod]);
+
+  const buildPDFHTML = useCallback((label, periodType, row, income, spending, categories) => {
+    const totalSpent = spending.reduce((s, t) => s + Math.abs(t.amount), 0);
+    const maxCat = Math.max(...categories.map(c => c.value), 1);
+    const generatedDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    const periodTypeLabel = periodType === "monthly" ? "Monthly Report" : periodType === "quarterly" ? "Quarterly Report" : "Yearly Report";
+
+    const fmt = (v) => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const statsHTML = `
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-label">Income</div><div class="stat-value income">$${fmt(row.income)}</div></div>
+        <div class="stat-card"><div class="stat-label">Spent</div><div class="stat-value spent">$${fmt(row.spent)}</div></div>
+        <div class="stat-card"><div class="stat-label">Net</div><div class="stat-value ${row.net >= 0 ? "net-pos" : "net-neg"}">${row.net >= 0 ? "+" : "-"}$${fmt(Math.abs(row.net))}</div></div>
+        <div class="stat-card"><div class="stat-label">Transactions</div><div class="stat-value">${row.count}</div></div>
+      </div>`;
+
+    const incomeHTML = income.length > 0 ? `
+      <div class="section-header">Income Sources (${income.length})</div>
+      ${[...income].sort((a, b) => b.amount - a.amount).map(t => `
+        <div class="income-row">
+          <div><div class="income-desc">${t.description}</div><div class="income-date">${t.date.toLocaleDateString()}</div></div>
+          <div class="income-amount">+$${t.amount.toFixed(2)}</div>
+        </div>`).join("")}` : "";
+
+    const categoriesHTML = categories.length > 0 ? `
+      <div class="section-header">Spending by Category</div>
+      ${categories.map(cat => `
+        <div class="cat-row">
+          <div class="cat-name">${cat.name}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${((cat.value / maxCat) * 100).toFixed(1)}%;background:${cat.color}"></div></div>
+          <div class="cat-amount">$${cat.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+          <div class="cat-pct">${totalSpent > 0 ? ((cat.value / totalSpent) * 100).toFixed(1) : "0.0"}%</div>
+        </div>`).join("")}` : "";
+
+    const transactionsHTML = spending.length > 0 ? `
+      <div class="section-header">Transactions (${spending.length})</div>
+      <table>
+        <thead><tr><th>Date</th><th>Description</th><th>Category</th><th style="text-align:right">Amount</th></tr></thead>
+        <tbody>
+          ${[...spending].sort((a, b) => a.date - b.date).map(t => `
+            <tr>
+              <td class="td-date">${t.date.toLocaleDateString()}</td>
+              <td class="td-desc">${t.description}</td>
+              <td>${t.category}</td>
+              <td class="td-amount">-$${Math.abs(t.amount).toFixed(2)}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>` : "";
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Ledger – ${label}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    @page{size:A4 portrait;margin:32px 40px}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111;background:#fff;padding:48px;max-width:800px;margin:0 auto;font-size:13px;line-height:1.5}
+    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:16px;border-bottom:2px solid #111}
+    .brand{font-size:22px;font-weight:800;letter-spacing:-1px}
+    .brand-sub{font-size:10px;color:#999;letter-spacing:.06em;margin-top:2px}
+    .report-meta{text-align:right;font-size:11px;color:#999}
+    .period-title{font-size:30px;font-weight:800;letter-spacing:-1px;margin-bottom:3px}
+    .period-type{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.12em;margin-bottom:24px}
+    .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+    .stat-card{border:1px solid #e5e5e5;border-radius:8px;padding:14px 16px}
+    .stat-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#aaa;margin-bottom:6px}
+    .stat-value{font-size:17px;font-weight:800}
+    .income{color:#16a34a}.spent{color:#dc2626}.net-pos{color:#16a34a}.net-neg{color:#ea580c}
+    .section-header{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:#aaa;border-bottom:1px solid #e8e8e8;padding-bottom:7px;margin-bottom:10px;margin-top:28px}
+    .income-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #f5f5f5}
+    .income-row:last-child{border-bottom:none}
+    .income-desc{font-weight:500;font-size:12px}
+    .income-date{font-size:10px;color:#aaa;margin-top:1px}
+    .income-amount{font-weight:700;color:#16a34a;font-size:13px}
+    .cat-row{display:grid;grid-template-columns:160px 1fr 90px 55px;gap:12px;align-items:center;margin-bottom:8px}
+    .cat-name{font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .bar-track{background:#f0f0f0;border-radius:3px;height:6px}
+    .bar-fill{height:6px;border-radius:3px}
+    .cat-amount{text-align:right;font-weight:700;font-size:11px}
+    .cat-pct{text-align:right;font-size:10px;color:#aaa}
+    table{width:100%;border-collapse:collapse}
+    thead th{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#aaa;padding:8px 10px;background:#f9f9f9;text-align:left;border-bottom:1px solid #e8e8e8}
+    tbody td{padding:7px 10px;border-bottom:1px solid #f5f5f5;font-size:11px}
+    .td-amount{text-align:right;font-weight:700;color:#dc2626}
+    .td-date{color:#999;white-space:nowrap}
+    .td-desc{max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .footer{margin-top:36px;padding-top:12px;border-top:1px solid #e8e8e8;display:flex;justify-content:space-between;font-size:10px;color:#ccc}
+    @media print{body{padding:0}}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div><div class="brand">Ledger.</div><div class="brand-sub">Personal Finance Tracker</div></div>
+    <div class="report-meta"><div>${periodTypeLabel}</div><div>Generated ${generatedDate}</div></div>
+  </div>
+  <div class="period-title">${label}</div>
+  <div class="period-type">${periodTypeLabel}</div>
+  ${statsHTML}${incomeHTML}${categoriesHTML}${transactionsHTML}
+  <div class="footer"><span>Ledger · Personal Finance Tracker</span><span>Generated ${generatedDate}</span></div>
+</body>
+</html>`;
+  }, []);
+
+  const handlePrintPDF = useCallback((label, periodKey, periodType, row) => {
+    const income = getIncomeForPeriod(periodKey, periodType);
+    const spending = getSpendingForPeriod(periodKey, periodType);
+    const categories = getCategoryBreakdownForPeriod(periodKey, periodType);
+    const html = buildPDFHTML(label, periodType, row, income, spending, categories);
+    const win = window.open("", "_blank", "width=920,height=720,scrollbars=yes");
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 500);
+  }, [buildPDFHTML, getIncomeForPeriod, getSpendingForPeriod, getCategoryBreakdownForPeriod]);
 
   const downloadTextReport = useCallback((reportText) => {
     if (typeof window === "undefined" || !reportText) return;
@@ -1205,7 +1323,7 @@ export default function FinanceDashboard() {
                                 onClick={() => setExpandedReportPeriod(isExpanded ? null : `${section.type}-${periodKey}`)}
                                 style={{
                                   display: "grid",
-                                  gridTemplateColumns: "minmax(120px, 1fr) repeat(4, minmax(90px, auto))",
+                                  gridTemplateColumns: "minmax(120px, 1fr) repeat(4, minmax(90px, auto)) auto",
                                   gap: 12,
                                   alignItems: "center",
                                   padding: "12px 14px",
@@ -1225,6 +1343,25 @@ export default function FinanceDashboard() {
                                   Net {row.net >= 0 ? formatCurrency(row.net) : `-${formatCurrency(row.net)}`}
                                 </span>
                                 <span style={{ fontSize: 12, color: "#a09888" }}>{row.count} transactions</span>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setPdfPreviewPeriod({ label: row.label, periodKey, periodType: section.type, row }); }}
+                                  style={{
+                                    background: "rgba(255,255,255,0.06)",
+                                    border: "1px solid rgba(255,255,255,0.1)",
+                                    borderRadius: 6,
+                                    padding: "4px 10px",
+                                    color: "#a09888",
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    cursor: "pointer",
+                                    whiteSpace: "nowrap",
+                                    letterSpacing: "0.03em",
+                                  }}
+                                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "#f0ece4"; }}
+                                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "#a09888"; }}
+                                >
+                                  PDF
+                                </button>
                               </div>
 
                               {isExpanded && (
@@ -1432,6 +1569,143 @@ export default function FinanceDashboard() {
           </>
         )}
       </div>
+
+    {/* PDF Preview Modal */}
+    {pdfPreviewPeriod && (() => {
+      const { label, periodKey, periodType, row } = pdfPreviewPeriod;
+      const income = getIncomeForPeriod(periodKey, periodType);
+      const spending = getSpendingForPeriod(periodKey, periodType);
+      const categories = getCategoryBreakdownForPeriod(periodKey, periodType);
+      const totalSpent = spending.reduce((s, t) => s + Math.abs(t.amount), 0);
+      const maxCat = Math.max(...categories.map(c => c.value), 1);
+      const generatedDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+      const periodTypeLabel = periodType === "monthly" ? "Monthly Report" : periodType === "quarterly" ? "Quarterly Report" : "Yearly Report";
+
+      return (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setPdfPreviewPeriod(null); }}
+          style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "32px 16px", overflowY: "auto" }}
+        >
+          <div style={{ background: "#fff", color: "#111", borderRadius: 14, width: "100%", maxWidth: 760, padding: 48, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", marginBottom: 32 }}>
+
+            {/* Modal action bar */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginBottom: 36 }}>
+              <button onClick={() => setPdfPreviewPeriod(null)} style={{ padding: "8px 20px", borderRadius: 8, border: "1px solid #e0e0e0", background: "#fff", color: "#555", fontSize: 13, cursor: "pointer" }}>
+                Close
+              </button>
+              <button
+                onClick={() => handlePrintPDF(label, periodKey, periodType, row)}
+                style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: "#111", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+              >
+                ↓ Download PDF
+              </button>
+            </div>
+
+            {/* Report header */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28, paddingBottom: 16, borderBottom: "2px solid #111" }}>
+              <div>
+                <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: -1 }}>Ledger.</div>
+                <div style={{ fontSize: 10, color: "#999", letterSpacing: "0.06em", marginTop: 2 }}>Personal Finance Tracker</div>
+              </div>
+              <div style={{ textAlign: "right", fontSize: 11, color: "#999" }}>
+                <div>{periodTypeLabel}</div>
+                <div>Generated {generatedDate}</div>
+              </div>
+            </div>
+
+            {/* Period title */}
+            <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: -1, marginBottom: 3 }}>{label}</div>
+            <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 24 }}>{periodTypeLabel}</div>
+
+            {/* Summary stats */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+              {[
+                { label: "Income", value: `$${row.income.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: "#16a34a" },
+                { label: "Spent", value: `$${row.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: "#dc2626" },
+                { label: "Net", value: `${row.net >= 0 ? "+" : "-"}$${Math.abs(row.net).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: row.net >= 0 ? "#16a34a" : "#ea580c" },
+                { label: "Transactions", value: row.count, color: "#111" },
+              ].map(s => (
+                <div key={s.label} style={{ border: "1px solid #e5e5e5", borderRadius: 8, padding: "14px 16px" }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: "#aaa", marginBottom: 6 }}>{s.label}</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: s.color }}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Income sources */}
+            {income.length > 0 && (
+              <>
+                <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "#aaa", borderBottom: "1px solid #e8e8e8", paddingBottom: 7, marginBottom: 10, marginTop: 28 }}>
+                  Income Sources ({income.length})
+                </div>
+                {[...income].sort((a, b) => b.amount - a.amount).map((t, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: "1px solid #f5f5f5" }}>
+                    <div>
+                      <div style={{ fontWeight: 500, fontSize: 12 }}>{t.description}</div>
+                      <div style={{ fontSize: 10, color: "#aaa", marginTop: 1 }}>{t.date.toLocaleDateString()}</div>
+                    </div>
+                    <div style={{ fontWeight: 700, color: "#16a34a", fontSize: 13 }}>+${t.amount.toFixed(2)}</div>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* Spending by category */}
+            {categories.length > 0 && (
+              <>
+                <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "#aaa", borderBottom: "1px solid #e8e8e8", paddingBottom: 7, marginBottom: 12, marginTop: 28 }}>
+                  Spending by Category
+                </div>
+                {categories.map(cat => (
+                  <div key={cat.name} style={{ display: "grid", gridTemplateColumns: "160px 1fr 90px 55px", gap: 12, alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat.name}</div>
+                    <div style={{ background: "#f0f0f0", borderRadius: 3, height: 6 }}>
+                      <div style={{ width: `${((cat.value / maxCat) * 100).toFixed(1)}%`, height: 6, borderRadius: 3, background: cat.color }} />
+                    </div>
+                    <div style={{ textAlign: "right", fontWeight: 700, fontSize: 11 }}>${cat.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                    <div style={{ textAlign: "right", fontSize: 10, color: "#aaa" }}>{totalSpent > 0 ? ((cat.value / totalSpent) * 100).toFixed(1) : "0.0"}%</div>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* Transactions table */}
+            {spending.length > 0 && (
+              <>
+                <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "#aaa", borderBottom: "1px solid #e8e8e8", paddingBottom: 7, marginBottom: 0, marginTop: 28 }}>
+                  Transactions ({spending.length})
+                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      {["Date", "Description", "Category", "Amount"].map(h => (
+                        <th key={h} style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#aaa", padding: "8px 10px", background: "#f9f9f9", textAlign: h === "Amount" ? "right" : "left", borderBottom: "1px solid #e8e8e8" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...spending].sort((a, b) => a.date - b.date).map((t, i) => (
+                      <tr key={i}>
+                        <td style={{ padding: "7px 10px", borderBottom: "1px solid #f5f5f5", fontSize: 11, color: "#999", whiteSpace: "nowrap" }}>{t.date.toLocaleDateString()}</td>
+                        <td style={{ padding: "7px 10px", borderBottom: "1px solid #f5f5f5", fontSize: 11, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.description}</td>
+                        <td style={{ padding: "7px 10px", borderBottom: "1px solid #f5f5f5", fontSize: 11 }}>{t.category}</td>
+                        <td style={{ padding: "7px 10px", borderBottom: "1px solid #f5f5f5", fontSize: 11, textAlign: "right", fontWeight: 700, color: "#dc2626" }}>-${Math.abs(t.amount).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+
+            {/* Footer */}
+            <div style={{ marginTop: 36, paddingTop: 12, borderTop: "1px solid #e8e8e8", display: "flex", justifyContent: "space-between", fontSize: 10, color: "#ccc" }}>
+              <span>Ledger · Personal Finance Tracker</span>
+              <span>Generated {generatedDate}</span>
+            </div>
+          </div>
+        </div>
+      );
+    })()}
     </div>
   );
 }

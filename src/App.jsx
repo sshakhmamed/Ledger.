@@ -33,7 +33,12 @@ const CATEGORY_RULES = [
 
 const LEARNED_CATEGORIES_STORAGE_KEY = "finance-dashboard-learned-categories";
 const CUSTOM_CATEGORIES_STORAGE_KEY = "finance-dashboard-custom-categories";
+const TRANSACTIONS_STORAGE_KEY = "finance-dashboard-transactions";
 const DEFAULT_CATEGORY_OPTIONS = Array.from(new Set([...CATEGORY_RULES.map((rule) => rule.category), "Other"]));
+
+function deserializeTransactions(raw) {
+  return raw.map((t) => ({ ...t, date: new Date(t.date) }));
+}
 
 function normalizeTransactionKey(description) {
   return String(description || "")
@@ -339,7 +344,17 @@ function SparkLine({ points, width = 200, height = 50, color = "#2ecc71" }) {
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export default function FinanceDashboard() {
-  const [transactions, setTransactions] = useState([]);
+  const [transactions, setTransactions] = useState(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = window.localStorage.getItem(TRANSACTIONS_STORAGE_KEY);
+      return saved ? deserializeTransactions(JSON.parse(saved)) : [];
+    } catch { return []; }
+  });
+  const [persistError, setPersistError] = useState("");
+  const [showRestoredBanner, setShowRestoredBanner] = useState(() =>
+    typeof window !== "undefined" && !!window.localStorage.getItem(TRANSACTIONS_STORAGE_KEY)
+  );
   const [importError, setImportError] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -378,6 +393,19 @@ export default function FinanceDashboard() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (transactions.length === 0) return;
+    try {
+      window.localStorage.setItem(TRANSACTIONS_STORAGE_KEY, JSON.stringify(transactions));
+      setPersistError("");
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "QuotaExceededError") {
+        setPersistError("Storage full — your browser's localStorage limit was reached. Data will not persist after refresh.");
+      }
+    }
+  }, [transactions]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     try {
       window.localStorage.setItem(CUSTOM_CATEGORIES_STORAGE_KEY, JSON.stringify(customCategoryRules));
     } catch {}
@@ -390,6 +418,7 @@ export default function FinanceDashboard() {
         const parsed = parseCSV(e.target.result, learnedCategories, customCategoryRules);
         setTransactions(parsed);
         setImportError("");
+        setShowRestoredBanner(false);
         setActiveTab("overview");
       } catch (error) {
         setImportError(error instanceof Error ? error.message : "This CSV file could not be imported.");
@@ -406,6 +435,13 @@ export default function FinanceDashboard() {
     const file = e.dataTransfer?.files?.[0];
     if (file) handleFile(file);
   }, [handleFile]);
+
+  const handleClearData = useCallback(() => {
+    setTransactions([]);
+    setPersistError("");
+    setShowRestoredBanner(false);
+    try { window.localStorage.removeItem(TRANSACTIONS_STORAGE_KEY); } catch {}
+  }, []);
 
   const handleCategoryAssign = useCallback((transaction, category) => {
     if (!category) return;
@@ -935,16 +971,46 @@ export default function FinanceDashboard() {
             </h1>
             <p style={{ color: "#786e60", fontSize: 13 }}>Personal finance clarity</p>
           </div>
-          {hasData && (
-            <label style={{
-              padding: "8px 20px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)",
-              borderRadius: 10, cursor: "pointer", fontSize: 13, color: "#a09888", fontWeight: 500,
-            }}>
-              Upload new CSV
-              <input type="file" accept=".csv" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
-            </label>
-          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            {hasData && (
+              <>
+                <label style={{
+                  padding: "8px 20px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 10, cursor: "pointer", fontSize: 13, color: "#a09888", fontWeight: 500,
+                }}>
+                  Upload new CSV
+                  <input type="file" accept=".csv" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+                </label>
+                <button
+                  onClick={() => { if (window.confirm("Clear all transaction data? This cannot be undone.")) handleClearData(); }}
+                  style={{ padding: "8px 16px", background: "rgba(231,76,60,0.08)", border: "1px solid rgba(231,76,60,0.18)", borderRadius: 10, cursor: "pointer", fontSize: 13, color: "#e74c3c", fontWeight: 500, fontFamily: "'DM Sans', sans-serif" }}
+                >
+                  Clear data
+                </button>
+              </>
+            )}
+          </div>
         </div>
+
+        {persistError && (
+          <div style={{ ...cardStyle, marginBottom: 16, padding: "12px 16px", border: "1px solid rgba(243,156,18,0.28)", background: "rgba(243,156,18,0.06)" }}>
+            <p style={{ color: "#f39c12", fontSize: 12 }}>{persistError}</p>
+          </div>
+        )}
+
+        {showRestoredBanner && (
+          <div style={{ ...cardStyle, marginBottom: 16, padding: "12px 18px", border: "1px solid rgba(46,204,113,0.2)", background: "rgba(46,204,113,0.05)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+            <p style={{ color: "#2ecc71", fontSize: 12 }}>
+              ✓ Your data was restored from your last session — {transactions.length} transactions loaded.
+            </p>
+            <button
+              onClick={() => setShowRestoredBanner(false)}
+              style={{ background: "none", border: "none", color: "#504840", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: "0 4px", fontFamily: "'DM Sans', sans-serif" }}
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {importError && (
           <div

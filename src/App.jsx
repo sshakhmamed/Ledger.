@@ -905,6 +905,53 @@ export default function FinanceDashboard() {
       .sort((a, b) => b.monthlyEquivalent - a.monthlyEquivalent);
   }, [transactions]);
 
+  const budgetForecastRows = useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const elapsedDays = Math.min(daysInMonth, now.getDate());
+
+    const monthSpendingByCategory = {};
+    spending.forEach((t) => {
+      if (!(t.date instanceof Date) || Number.isNaN(t.date.getTime())) return;
+      if (t.date.getMonth() !== currentMonth || t.date.getFullYear() !== currentYear) return;
+      monthSpendingByCategory[t.category] = (monthSpendingByCategory[t.category] || 0) + Math.abs(t.amount);
+    });
+
+    const rows = Object.entries(budgets)
+      .map(([category, budget]) => {
+        const spentSoFar = monthSpendingByCategory[category] || 0;
+        const pacePerDay = elapsedDays > 0 ? spentSoFar / elapsedDays : 0;
+        const projected = pacePerDay * daysInMonth;
+        const usedPct = budget > 0 ? (spentSoFar / budget) * 100 : 0;
+        const projectedPct = budget > 0 ? (projected / budget) * 100 : 0;
+        const status = projectedPct >= 110 ? "Likely Over" : projectedPct >= 95 ? "At Risk" : "On Track";
+        const statusColor = status === "Likely Over" ? "#e74c3c" : status === "At Risk" ? "#f39c12" : "#2ecc71";
+        return {
+          category,
+          budget,
+          spentSoFar,
+          projected,
+          remaining: budget - spentSoFar,
+          usedPct,
+          projectedPct,
+          status,
+          statusColor,
+        };
+      })
+      .sort((a, b) => b.projectedPct - a.projectedPct);
+
+    return {
+      rows,
+      atRisk: rows.filter((r) => r.status !== "On Track"),
+      totalBudget: rows.reduce((s, r) => s + r.budget, 0),
+      totalProjected: rows.reduce((s, r) => s + r.projected, 0),
+      elapsedDays,
+      daysInMonth,
+    };
+  }, [budgets, spending]);
+
   const handleAddCustomCategory = useCallback(() => {
     const name = newCategoryName.trim();
     if (!name) return;
@@ -1291,7 +1338,7 @@ export default function FinanceDashboard() {
           <>
             {/* Tabs */}
             <div style={{ display: "flex", gap: 4, marginBottom: 28, background: "rgba(255,255,255,0.02)", borderRadius: 12, padding: 4, width: "fit-content" }}>
-              {["overview", "categories", "transactions", "income", "reports", "rules", "insights"].map((tab) => (
+              {["overview", "categories", "transactions", "income", "reports", "rules", "budgets", "insights"].map((tab) => (
                 <button key={tab} style={tabStyle(tab)} onClick={() => { setActiveTab(tab); setSelectedCategory(null); }}>
                   {tab.charAt(0).toUpperCase() + tab.slice(1)}
                 </button>
@@ -1366,6 +1413,38 @@ export default function FinanceDashboard() {
                       <div style={{ width: 10, height: 10, borderRadius: 2, background: "#e74c3c", opacity: 0.7 }} /> Spending
                     </div>
                   </div>
+                </div>
+
+                <div style={{ ...cardStyle, marginTop: 16 }}>
+                  <p style={{ color: "#786e60", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>
+                    Top Budget Risks
+                  </p>
+                  {budgetForecastRows.rows.length === 0 ? (
+                    <p style={{ color: "#a09888", fontSize: 13 }}>
+                      No budgets set yet. Add monthly limits in Categories to see risk forecasting.
+                    </p>
+                  ) : budgetForecastRows.atRisk.length === 0 ? (
+                    <p style={{ color: "#2ecc71", fontSize: 13 }}>
+                      All budgeted categories are currently on track.
+                    </p>
+                  ) : (
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {budgetForecastRows.atRisk.slice(0, 3).map((risk) => (
+                        <div key={risk.category} style={{ display: "grid", gridTemplateColumns: "minmax(120px, 1fr) 140px 140px 100px", gap: 12, alignItems: "center", padding: "10px 12px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 10 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>{risk.category}</span>
+                          <span style={{ fontSize: 12, color: "#a09888" }}>
+                            ${risk.spentSoFar.toFixed(0)} / ${risk.budget.toFixed(0)}
+                          </span>
+                          <span style={{ fontSize: 12, color: "#a09888" }}>
+                            Projected ${risk.projected.toFixed(0)}
+                          </span>
+                          <span style={{ fontSize: 11, color: risk.statusColor, fontWeight: 700, textAlign: "right" }}>
+                            {risk.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -2072,6 +2151,64 @@ export default function FinanceDashboard() {
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === "budgets" && (
+              <div style={{ animation: "fadeUp 0.4s ease", display: "grid", gap: 16 }}>
+                <div style={cardStyle}>
+                  <p style={{ color: "#786e60", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>
+                    Budget Forecast
+                  </p>
+                  <p style={{ color: "#a09888", fontSize: 13, lineHeight: 1.7 }}>
+                    Month-to-date pacing across {budgetForecastRows.elapsedDays}/{budgetForecastRows.daysInMonth} days. Projections estimate where each category lands by month end.
+                  </p>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+                  {[
+                    { label: "Budgeted Categories", value: budgetForecastRows.rows.length, color: "#7fc7ff" },
+                    { label: "At Risk", value: budgetForecastRows.atRisk.length, color: budgetForecastRows.atRisk.length > 0 ? "#f39c12" : "#2ecc71" },
+                    { label: "Total Budget", value: `$${budgetForecastRows.totalBudget.toFixed(0)}`, color: "#2ecc71" },
+                    { label: "Projected Spend", value: `$${budgetForecastRows.totalProjected.toFixed(0)}`, color: budgetForecastRows.totalProjected > budgetForecastRows.totalBudget ? "#e74c3c" : "#f39c12" },
+                  ].map((stat) => (
+                    <div key={stat.label} style={cardStyle}>
+                      <p style={{ color: "#786e60", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>{stat.label}</p>
+                      <p style={{ fontSize: 24, fontWeight: 700, color: stat.color }}>{stat.value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={cardStyle}>
+                  <p style={{ color: "#786e60", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 14 }}>
+                    Category Forecasts
+                  </p>
+                  {budgetForecastRows.rows.length === 0 ? (
+                    <p style={{ color: "#a09888", fontSize: 13 }}>No budgets set yet. Add category budgets in the Categories tab to unlock forecasting.</p>
+                  ) : (
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {budgetForecastRows.rows.map((row) => (
+                        <div key={row.category} style={{ padding: "12px 14px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 10 }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "minmax(120px, 1fr) 90px 90px 110px 110px 100px", gap: 12, alignItems: "center" }}>
+                            <span style={{ fontSize: 13, fontWeight: 600 }}>{row.category}</span>
+                            <span style={{ fontSize: 12, color: "#a09888" }}>Budget ${row.budget.toFixed(0)}</span>
+                            <span style={{ fontSize: 12, color: "#a09888" }}>Spent ${row.spentSoFar.toFixed(0)}</span>
+                            <span style={{ fontSize: 12, color: "#a09888" }}>Projected ${row.projected.toFixed(0)}</span>
+                            <span style={{ fontSize: 12, color: row.remaining < 0 ? "#e74c3c" : "#2ecc71" }}>
+                              {row.remaining < 0 ? `Over $${Math.abs(row.remaining).toFixed(0)}` : `Left $${row.remaining.toFixed(0)}`}
+                            </span>
+                            <span style={{ fontSize: 11, color: row.statusColor, fontWeight: 700, textAlign: "right" }}>
+                              {row.status}
+                            </span>
+                          </div>
+                          <div style={{ marginTop: 8, height: 6, borderRadius: 6, background: "rgba(255,255,255,0.06)" }}>
+                            <div style={{ width: `${Math.min(row.projectedPct, 100)}%`, height: "100%", borderRadius: 6, background: row.statusColor }} />
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>

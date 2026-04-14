@@ -26,7 +26,13 @@ const CATEGORY_RULES = [
   { category: "Government & Taxes", keywords: ["irs", "tax", "dmv", "bureau of motor", "usps", "city of", "county", "state of", "department of taxation"] },
   { category: "Payroll", keywords: ["payroll", "salary", "direct deposit", "employer", "wages"] },
   { category: "Deposits", keywords: ["deposit", "check deposit", "cash deposit", "remote deposit"] },
-  { category: "Medical & Personal", keywords: ["pharmacy", "walgreens", "cvs", "doctor", "hospital", "dental", "vision", "clinic", "urgent care", "optometrist", "dermatology"] },
+  { category: "Medical", keywords: ["pharmacy", "walgreens", "cvs", "doctor", "hospital", "dental", "vision", "clinic", "urgent care", "optometrist", "dermatology", "pediatrician", "vet"] },
+  { category: "Personal Care", keywords: ["sephora", "ulta", "salon", "spa", "barber", "nail", "cosmetics", "skincare", "hair care", "personal care"] },
+  { category: "Travel", keywords: ["airbnb", "uber", "lyft", "hotel", "airline", "delta", "united", "southwest", "american airlines", "booking.com", "expedia", "rental car", "hertz", "enterprise"] },
+  { category: "Pet Supplies", keywords: ["petco", "petsmart", "chewy", "veterinary", "pet supplies", "pet food"] },
+  { category: "Charity & Donations", keywords: ["gofundme", "paypal giving", "charity", "donation", "church", "nonprofit", "tithe"] },
+  { category: "Bars & Alcohol", keywords: ["liquor", "brewery", "winery", "bar tab", "total wine", "bevmo"] },
+  { category: "Baby & Kids", keywords: ["buy buy baby", "carter's", "carters", "daycare", "kids", "baby", "toys r us", "childcare"] },
   { category: "Clothing", keywords: ["clothing", "apparel", "shoe", "shoes", "nike", "adidas", "old navy", "gap", "h&m", "zara", "macy", "nordstrom", "tjmaxx", "marshall"] },
   { category: "Home & Garden", keywords: ["home depot", "lowe's", "lowes", "ikea", "bed bath", "wayfair", "hardware", "garden center", "ace hardware"] },
 ];
@@ -38,7 +44,39 @@ const BUDGETS_STORAGE_KEY = "finance-dashboard-budgets";
 const DEFAULT_CATEGORY_OPTIONS = Array.from(new Set([...CATEGORY_RULES.map((rule) => rule.category), "Other"]));
 
 function deserializeTransactions(raw) {
-  return raw.map((t) => ({ ...t, date: new Date(t.date) }));
+  return raw.map((t) => ({
+    ...t,
+    date: new Date(t.date),
+    account: t.account || "Primary",
+    note: t.note || "",
+  }));
+}
+
+function normalizeAccountName(name) {
+  const trimmed = String(name || "").trim();
+  return trimmed || "Primary";
+}
+
+function getTransactionFingerprint(transaction) {
+  return [
+    transaction.date?.toISOString?.().slice(0, 10) || "",
+    String(transaction.description || "").trim().toLowerCase(),
+    Number(transaction.amount || 0).toFixed(2),
+    normalizeAccountName(transaction.account).toLowerCase(),
+  ].join("|");
+}
+
+function mergeTransactions(existing, incoming) {
+  const seen = new Set(existing.map(getTransactionFingerprint));
+  const merged = [...existing];
+  incoming.forEach((t) => {
+    const key = getTransactionFingerprint(t);
+    if (!seen.has(key)) {
+      merged.push(t);
+      seen.add(key);
+    }
+  });
+  return merged.sort((a, b) => a.date - b.date);
 }
 
 function normalizeTransactionKey(description) {
@@ -166,7 +204,7 @@ function parseCSVRows(text) {
   return parsedRows;
 }
 
-function parseCSV(text, learnedCategories = {}, customRules = []) {
+function parseCSV(text, learnedCategories = {}, customRules = [], accountName = "Primary") {
   const parsedRows = parseCSVRows(text);
   if (parsedRows.length < 2) {
     throw new Error("This CSV does not contain enough rows to import.");
@@ -223,6 +261,8 @@ function parseCSV(text, learnedCategories = {}, customRules = []) {
       type,
       balance: Number.isNaN(balance) ? 0 : balance,
       memo,
+      account: normalizeAccountName(accountName),
+      note: getValue(parts, "Note", "Notes"),
       category: category && category !== "Other"
         ? category
         : categorize(description, learnedCategories, customRules),
@@ -362,6 +402,8 @@ export default function FinanceDashboard() {
   const [sortCol, setSortCol] = useState("date");
   const [sortDir, setSortDir] = useState(-1);
   const [searchTerm, setSearchTerm] = useState("");
+  const [startDateFilter, setStartDateFilter] = useState("");
+  const [endDateFilter, setEndDateFilter] = useState("");
   const [expandedReportPeriod, setExpandedReportPeriod] = useState(null);
   const [showEmptyCategories, setShowEmptyCategories] = useState(false);
   const [pdfPreviewPeriod, setPdfPreviewPeriod] = useState(null);
@@ -433,8 +475,9 @@ export default function FinanceDashboard() {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const parsed = parseCSV(e.target.result, learnedCategories, customCategoryRules);
-        setTransactions(parsed);
+        const accountName = normalizeAccountName(window.prompt("Account name for this CSV import?", "Primary"));
+        const parsed = parseCSV(e.target.result, learnedCategories, customCategoryRules, accountName);
+        setTransactions((prev) => mergeTransactions(prev, parsed));
         setImportError("");
         setShowRestoredBanner(false);
         setActiveTab("overview");
@@ -475,6 +518,17 @@ export default function FinanceDashboard() {
       prev.map((item) =>
         normalizeTransactionKey(item.description) === transactionKey
           ? { ...item, category }
+          : item
+      )
+    );
+  }, []);
+
+  const handleTransactionNoteChange = useCallback((transaction, note) => {
+    const txKey = getTransactionFingerprint(transaction);
+    setTransactions((prev) =>
+      prev.map((item) =>
+        getTransactionFingerprint(item) === txKey
+          ? { ...item, note }
           : item
       )
     );
@@ -716,13 +770,6 @@ export default function FinanceDashboard() {
 
   const maxCatValue = useMemo(() => Math.max(...categoryTotals.map((c) => c.value), 1), [categoryTotals]);
 
-  const avgMonthlyCategorySpend = useMemo(() => {
-    const numMonths = monthlyData.length || 1;
-    const result = {};
-    categoryTotals.forEach((cat) => { result[cat.name] = cat.value / numMonths; });
-    return result;
-  }, [categoryTotals, monthlyData]);
-
   const totalSpent = useMemo(() => spending.reduce((s, t) => s + Math.abs(t.amount), 0), [spending]);
   const totalIncome = useMemo(() => income.reduce((s, t) => s + t.amount, 0), [income]);
 
@@ -744,6 +791,13 @@ export default function FinanceDashboard() {
   const balanceHistory = useMemo(() => transactions
     .map((t) => t.balance)
     .filter((value) => value !== null && value !== undefined && !Number.isNaN(value)), [transactions]);
+
+  const avgMonthlyCategorySpend = useMemo(() => {
+    const numMonths = monthlyData.length || 1;
+    const result = {};
+    categoryTotals.forEach((cat) => { result[cat.name] = cat.value / numMonths; });
+    return result;
+  }, [categoryTotals, monthlyData]);
 
   const topMerchants = useMemo(() => {
     const map = {};
@@ -930,16 +984,73 @@ export default function FinanceDashboard() {
     let list = baseList;
     if (searchTerm) {
       const lower = searchTerm.toLowerCase();
-      list = list.filter((t) => t.description.toLowerCase().includes(lower) || t.category.toLowerCase().includes(lower));
+      list = list.filter((t) =>
+        t.description.toLowerCase().includes(lower) ||
+        t.category.toLowerCase().includes(lower) ||
+        String(t.account || "").toLowerCase().includes(lower) ||
+        String(t.note || "").toLowerCase().includes(lower)
+      );
+    }
+    if (startDateFilter) {
+      const start = new Date(`${startDateFilter}T00:00:00`);
+      list = list.filter((t) => t.date >= start);
+    }
+    if (endDateFilter) {
+      const end = new Date(`${endDateFilter}T23:59:59`);
+      list = list.filter((t) => t.date <= end);
     }
     return list.sort((a, b) => {
       if (sortCol === "date") return sortDir * (a.date - b.date);
       if (sortCol === "amount") return sortDir * (a.amount - b.amount);
       if (sortCol === "desc") return sortDir * a.description.localeCompare(b.description);
       if (sortCol === "category") return sortDir * a.category.localeCompare(b.category);
+      if (sortCol === "account") return sortDir * String(a.account || "").localeCompare(String(b.account || ""));
+      if (sortCol === "note") return sortDir * String(a.note || "").localeCompare(String(b.note || ""));
       return 0;
     });
-  }, [activeTab, incomeTransactions, spending, selectedCategory, searchTerm, sortCol, sortDir]);
+  }, [activeTab, incomeTransactions, spending, selectedCategory, searchTerm, startDateFilter, endDateFilter, sortCol, sortDir]);
+
+  const exportTransactionsToCSV = useCallback((rows) => {
+    if (!rows.length || typeof window === "undefined") return;
+    const escapeCell = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const header = ["Date", "Description", "Category", "Account", "Note", "Amount"];
+    const lines = rows.map((t) => [
+      t.date.toISOString().slice(0, 10),
+      t.description,
+      t.category,
+      t.account || "Primary",
+      t.note || "",
+      t.amount.toFixed(2),
+    ]);
+    const csv = [header, ...lines].map((row) => row.map(escapeCell).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `ledger-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  }, []);
+
+  const monthlyCategoryTrend = useMemo(() => {
+    const byMonth = {};
+    spending.forEach((t) => {
+      const key = `${t.date.getFullYear()}-${String(t.date.getMonth() + 1).padStart(2, "0")}`;
+      if (!byMonth[key]) byMonth[key] = {};
+      byMonth[key][t.category] = (byMonth[key][t.category] || 0) + Math.abs(t.amount);
+    });
+    const months = Object.keys(byMonth).sort();
+    const topCategories = categoryTotals.slice(0, 4).map((c) => c.name);
+    return months.map((monthKey) => {
+      const [year, month] = monthKey.split("-");
+      const label = `${MONTHS[Number(month) - 1]} ${year}`;
+      const values = {};
+      topCategories.forEach((name) => { values[name] = byMonth[monthKey]?.[name] || 0; });
+      return { key: monthKey, label, values };
+    });
+  }, [spending, categoryTotals]);
 
   const avgMonthlySpend = monthlyData.length > 0 ? totalSpent / monthlyData.length : 0;
   const savingsRate = totalIncome > 0 ? ((totalIncome - totalSpent) / totalIncome) * 100 : 0;
@@ -1316,9 +1427,29 @@ export default function FinanceDashboard() {
                     </button>
                   )}
                   {activeTab === "transactions" && (
-                    <span style={{ color: "#665e52", fontSize: 12 }}>
-                      Assign a category to any "Other" transaction to teach future imports.
-                    </span>
+                    <>
+                      <input
+                        type="date"
+                        value={startDateFilter}
+                        onChange={(e) => setStartDateFilter(e.target.value)}
+                        style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "9px 12px", color: "#a09888", fontSize: 12, fontFamily: "'DM Sans', sans-serif" }}
+                      />
+                      <input
+                        type="date"
+                        value={endDateFilter}
+                        onChange={(e) => setEndDateFilter(e.target.value)}
+                        style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "9px 12px", color: "#a09888", fontSize: 12, fontFamily: "'DM Sans', sans-serif" }}
+                      />
+                      <button
+                        onClick={() => exportTransactionsToCSV(filteredTransactions)}
+                        style={{ background: "rgba(52,152,219,0.14)", border: "1px solid rgba(52,152,219,0.25)", borderRadius: 8, padding: "8px 12px", color: "#7fc7ff", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}
+                      >
+                        Export CSV
+                      </button>
+                      <span style={{ color: "#665e52", fontSize: 12 }}>
+                        Assign a category to any "Other" transaction to teach future imports.
+                      </span>
+                    </>
                   )}
                   <span style={{ color: "#665e52", fontSize: 12 }}>{filteredTransactions.length} results</span>
                 </div>
@@ -1332,6 +1463,8 @@ export default function FinanceDashboard() {
                             { key: "date", label: "Date" },
                             { key: "desc", label: "Description" },
                             { key: "category", label: "Category" },
+                            { key: "account", label: "Account" },
+                            { key: "note", label: "Notes" },
                             { key: "amount", label: "Amount" },
                           ].map((col) => (
                             <th
@@ -1389,6 +1522,18 @@ export default function FinanceDashboard() {
                                   fontSize: 11, color: "#a09888", whiteSpace: "nowrap",
                                 }}>{t.category}</span>
                               )}
+                            </td>
+                            <td style={{ padding: "10px 16px", color: "#665e52", whiteSpace: "nowrap", fontSize: 12 }}>
+                              {t.account || "Primary"}
+                            </td>
+                            <td style={{ padding: "10px 16px", minWidth: 170 }}>
+                              <input
+                                type="text"
+                                value={t.note || ""}
+                                onChange={(e) => handleTransactionNoteChange(t, e.target.value)}
+                                placeholder="Add note..."
+                                style={{ width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "6px 10px", color: "#f0ece4", fontSize: 11, fontFamily: "'DM Sans', sans-serif", outline: "none" }}
+                              />
                             </td>
                             <td style={{
                               padding: "10px 16px", textAlign: "right", fontWeight: 600,
@@ -1780,6 +1925,36 @@ export default function FinanceDashboard() {
                     )}
                   </div>
                 ))}
+                <div style={cardStyle}>
+                  <p style={{ color: "#786e60", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>
+                    Monthly Category Trend
+                  </p>
+                  {monthlyCategoryTrend.length === 0 ? (
+                    <p style={{ color: "#a09888", fontSize: 13 }}>Not enough spending data for trend chart yet.</p>
+                  ) : (
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {monthlyCategoryTrend.map((month) => {
+                        const monthMax = Math.max(...Object.values(month.values), 1);
+                        return (
+                          <div key={month.key} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, alignItems: "center" }}>
+                            <span style={{ fontSize: 12, color: "#a09888" }}>{month.label}</span>
+                            <div style={{ display: "grid", gap: 4 }}>
+                              {Object.entries(month.values).map(([category, value], idx) => (
+                                <div key={`${month.key}-${category}`} style={{ display: "grid", gridTemplateColumns: "110px 1fr 70px", gap: 8, alignItems: "center" }}>
+                                  <span style={{ fontSize: 11, color: "#665e52", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{category}</span>
+                                  <div style={{ height: 6, borderRadius: 6, background: "rgba(255,255,255,0.06)" }}>
+                                    <div style={{ width: `${(value / monthMax) * 100}%`, height: "100%", borderRadius: 6, background: COLORS[idx % COLORS.length] }} />
+                                  </div>
+                                  <span style={{ fontSize: 11, color: "#a09888", textAlign: "right" }}>${value.toFixed(0)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

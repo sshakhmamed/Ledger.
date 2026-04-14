@@ -454,7 +454,7 @@ export default function FinanceDashboard() {
   }, [getTransactionsForPeriod]);
 
   const getIncomeForPeriod = useCallback((period, periodType) => {
-    return getTransactionsForPeriod(period, periodType).filter((t) => t.amount > 0 && (t.category === "Payroll" || t.category === "Deposits" || t.type === "ACH_CREDIT" || t.type === "CHECK_DEPOSIT" || t.type === "QUICKPAY_CREDIT" || t.type === "PARTNERFI_TO_CHASE"));
+    return getTransactionsForPeriod(period, periodType).filter((t) => t.amount > 0 && t.category !== "Transfers & Payments");
   }, [getTransactionsForPeriod]);
 
   const getCategoryBreakdownForPeriod = useCallback((period, periodType) => {
@@ -1179,7 +1179,18 @@ export default function FinanceDashboard() {
                     ) : (
                       <div style={{ display: "grid", gap: 10 }}>
                         {section.rows.map((row, idx) => {
-                          const periodKey = section.type === "monthly" ? `${row.label.split(" ").reverse().join("-")}` : row.label;
+                          const periodKey = section.type === "monthly" 
+                            ? (() => {
+                                const [month, year] = row.label.split(" ");
+                                const monthNum = String(MONTHS.indexOf(month) + 1).padStart(2, "0");
+                                return `${year}-${monthNum}`;
+                              })()
+                            : section.type === "quarterly"
+                              ? (() => {
+                                  const [quarter, year] = row.label.split(" ");
+                                  return `${year}-${quarter}`;
+                                })()
+                              : row.label;
                           const isExpanded = expandedReportPeriod === `${section.type}-${periodKey}`;
                           const periodSpending = getSpendingForPeriod(periodKey, section.type);
                           const periodIncome = getIncomeForPeriod(periodKey, section.type);

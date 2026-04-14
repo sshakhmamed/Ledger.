@@ -79,6 +79,22 @@ function mergeTransactions(existing, incoming) {
   return merged.sort((a, b) => a.date - b.date);
 }
 
+function average(values) {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function stdDev(values) {
+  if (values.length < 2) return 0;
+  const mean = average(values);
+  const variance = values.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / values.length;
+  return Math.sqrt(variance);
+}
+
+function daysBetween(a, b) {
+  return Math.abs((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24));
+}
+
 function normalizeTransactionKey(description) {
   return String(description || "")
     .split(/\s{2,}/)[0]
@@ -404,6 +420,7 @@ export default function FinanceDashboard() {
   const [searchTerm, setSearchTerm] = useState("");
   const [startDateFilter, setStartDateFilter] = useState("");
   const [endDateFilter, setEndDateFilter] = useState("");
+  const [selectedAccountFilter, setSelectedAccountFilter] = useState("all");
   const [expandedReportPeriod, setExpandedReportPeriod] = useState(null);
   const [showEmptyCategories, setShowEmptyCategories] = useState(false);
   const [pdfPreviewPeriod, setPdfPreviewPeriod] = useState(null);
@@ -742,6 +759,10 @@ export default function FinanceDashboard() {
   const spending = useMemo(() => transactions.filter((t) => t.amount < 0 && t.category !== "Transfers & Payments" && t.category !== "Payroll" && t.category !== "Deposits"), [transactions]);
   const income = useMemo(() => transactions.filter((t) => t.amount > 0 && (t.category === "Payroll" || t.category === "Deposits" || t.type === "ACH_CREDIT" || t.type === "CHECK_DEPOSIT" || t.type === "QUICKPAY_CREDIT" || t.type === "PARTNERFI_TO_CHASE")), [transactions]);
   const incomeTransactions = useMemo(() => transactions.filter((t) => t.amount > 0), [transactions]);
+  const accountOptions = useMemo(
+    () => ["all", ...Array.from(new Set(transactions.map((t) => t.account || "Primary"))).sort((a, b) => a.localeCompare(b))],
+    [transactions]
+  );
 
   // Single source of truth for all category names — same list that feeds every dropdown
   const allCategoryOptions = useMemo(() =>
@@ -819,16 +840,47 @@ export default function FinanceDashboard() {
       map[name].push({ amount: Math.abs(t.amount), date: t.date });
     });
     return Object.entries(map)
-      .filter(([, arr]) => arr.length >= 2)
+      .filter(([, arr]) => arr.length >= 3)
       .map(([name, arr]) => {
-        const amounts = arr.map((a) => a.amount);
-        const avg = amounts.reduce((s, a) => s + a, 0) / amounts.length;
-        const variance = amounts.reduce((s, a) => s + Math.pow(a - avg, 2), 0) / amounts.length;
-        const isConsistent = variance / (avg * avg + 0.01) < 0.05;
-        return { name, count: arr.length, avg: Math.round(avg * 100) / 100, consistent: isConsistent, total: Math.round(amounts.reduce((s, a) => s + a, 0) * 100) / 100 };
+        const sorted = [...arr].sort((a, b) => a.date - b.date);
+        const amounts = sorted.map((a) => a.amount);
+        const avgAmount = average(amounts);
+        const amountStd = stdDev(amounts);
+        const amountCv = avgAmount > 0 ? amountStd / avgAmount : 1;
+
+        const intervals = [];
+        for (let i = 1; i < sorted.length; i++) {
+          intervals.push(daysBetween(sorted[i].date, sorted[i - 1].date));
+        }
+        const avgInterval = average(intervals);
+        const intervalStd = stdDev(intervals);
+        const intervalCv = avgInterval > 0 ? intervalStd / avgInterval : 1;
+
+        const isMonthly = avgInterval >= 25 && avgInterval <= 35;
+        const isBiweekly = avgInterval >= 12 && avgInterval <= 17;
+        const cadence = isMonthly ? "Monthly" : isBiweekly ? "Biweekly" : "Irregular";
+
+        const amountConfidence = Math.max(0, Math.min(1, 1 - amountCv * 1.6));
+        const intervalConfidence = Math.max(0, Math.min(1, 1 - intervalCv * 1.8));
+        const cadenceBonus = cadence === "Irregular" ? 0 : 0.15;
+        const confidence = Math.max(0, Math.min(1, amountConfidence * 0.45 + intervalConfidence * 0.55 + cadenceBonus));
+
+        const monthlyEquivalent = cadence === "Biweekly"
+          ? avgAmount * (26 / 12)
+          : avgAmount;
+
+        return {
+          name,
+          count: sorted.length,
+          avg: Math.round(avgAmount * 100) / 100,
+          total: Math.round(amounts.reduce((s, a) => s + a, 0) * 100) / 100,
+          cadence,
+          confidence,
+          monthlyEquivalent: Math.round(monthlyEquivalent * 100) / 100,
+        };
       })
-      .filter((r) => r.consistent && r.count >= 2)
-      .sort((a, b) => b.avg - a.avg);
+      .filter((r) => r.cadence !== "Irregular" && r.confidence >= 0.55)
+      .sort((a, b) => b.monthlyEquivalent - a.monthlyEquivalent);
   }, [transactions]);
 
   const handleAddCustomCategory = useCallback(() => {
@@ -991,6 +1043,9 @@ export default function FinanceDashboard() {
         String(t.note || "").toLowerCase().includes(lower)
       );
     }
+    if (selectedAccountFilter !== "all") {
+      list = list.filter((t) => (t.account || "Primary") === selectedAccountFilter);
+    }
     if (startDateFilter) {
       const start = new Date(`${startDateFilter}T00:00:00`);
       list = list.filter((t) => t.date >= start);
@@ -1008,7 +1063,7 @@ export default function FinanceDashboard() {
       if (sortCol === "note") return sortDir * String(a.note || "").localeCompare(String(b.note || ""));
       return 0;
     });
-  }, [activeTab, incomeTransactions, spending, selectedCategory, searchTerm, startDateFilter, endDateFilter, sortCol, sortDir]);
+  }, [activeTab, incomeTransactions, spending, selectedCategory, searchTerm, selectedAccountFilter, startDateFilter, endDateFilter, sortCol, sortDir]);
 
   const exportTransactionsToCSV = useCallback((rows) => {
     if (!rows.length || typeof window === "undefined") return;
@@ -1032,6 +1087,20 @@ export default function FinanceDashboard() {
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
+  }, []);
+
+  const applyDateRangePreset = useCallback((days) => {
+    if (!days) {
+      setStartDateFilter("");
+      setEndDateFilter("");
+      return;
+    }
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - days);
+    const fmt = (d) => d.toISOString().slice(0, 10);
+    setStartDateFilter(fmt(start));
+    setEndDateFilter(fmt(end));
   }, []);
 
   const monthlyCategoryTrend = useMemo(() => {
@@ -1428,6 +1497,17 @@ export default function FinanceDashboard() {
                   )}
                   {activeTab === "transactions" && (
                     <>
+                      <select
+                        value={selectedAccountFilter}
+                        onChange={(e) => setSelectedAccountFilter(e.target.value)}
+                        style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "9px 12px", color: "#a09888", fontSize: 12, fontFamily: "'DM Sans', sans-serif" }}
+                      >
+                        {accountOptions.map((opt) => (
+                          <option key={opt} value={opt} style={{ background: "#1c1a17", color: "#f0ece4" }}>
+                            {opt === "all" ? "All accounts" : opt}
+                          </option>
+                        ))}
+                      </select>
                       <input
                         type="date"
                         value={startDateFilter}
@@ -1440,6 +1520,24 @@ export default function FinanceDashboard() {
                         onChange={(e) => setEndDateFilter(e.target.value)}
                         style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "9px 12px", color: "#a09888", fontSize: 12, fontFamily: "'DM Sans', sans-serif" }}
                       />
+                      <button
+                        onClick={() => applyDateRangePreset(30)}
+                        style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 10px", color: "#a09888", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}
+                      >
+                        Last 30d
+                      </button>
+                      <button
+                        onClick={() => applyDateRangePreset(90)}
+                        style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 10px", color: "#a09888", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}
+                      >
+                        Last 90d
+                      </button>
+                      <button
+                        onClick={() => applyDateRangePreset(0)}
+                        style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 10px", color: "#a09888", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}
+                      >
+                        Clear dates
+                      </button>
                       <button
                         onClick={() => exportTransactionsToCSV(filteredTransactions)}
                         style={{ background: "rgba(52,152,219,0.14)", border: "1px solid rgba(52,152,219,0.25)", borderRadius: 8, padding: "8px 12px", color: "#7fc7ff", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}
@@ -1964,7 +2062,7 @@ export default function FinanceDashboard() {
                 <div style={cardStyle}>
                   <p style={{ color: "#786e60", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16 }}>Detected Recurring Charges</p>
                   <p style={{ color: "#665e52", fontSize: 12, marginBottom: 16 }}>
-                    Monthly subscriptions & recurring payments: <strong style={{ color: "#f39c12" }}>${recurringCharges.reduce((s, r) => s + r.avg, 0).toFixed(2)}/mo estimated</strong>
+                    Monthly subscriptions & recurring payments: <strong style={{ color: "#f39c12" }}>${recurringCharges.reduce((s, r) => s + r.monthlyEquivalent, 0).toFixed(2)}/mo estimated</strong>
                   </p>
                   <div style={{ display: "grid", gap: 6 }}>
                     {recurringCharges.map((r, i) => (
@@ -1972,7 +2070,11 @@ export default function FinanceDashboard() {
                         <span style={{ fontSize: 13 }}>{r.name}</span>
                         <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
                           <span style={{ fontSize: 11, color: "#665e52" }}>{r.count}x</span>
-                          <span style={{ fontSize: 14, fontWeight: 600, color: "#f39c12" }}>${r.avg.toFixed(2)}</span>
+                          <span style={{ fontSize: 11, color: "#665e52" }}>{r.cadence}</span>
+                          <span style={{ fontSize: 11, color: r.confidence >= 0.8 ? "#2ecc71" : r.confidence >= 0.65 ? "#f39c12" : "#a09888" }}>
+                            {Math.round(r.confidence * 100)}% confidence
+                          </span>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: "#f39c12" }}>${r.monthlyEquivalent.toFixed(2)}/mo</span>
                         </div>
                       </div>
                     ))}
@@ -2022,7 +2124,7 @@ export default function FinanceDashboard() {
                       <div style={{ padding: "12px 16px", background: "rgba(52,152,219,0.06)", borderRadius: 10, border: "1px solid rgba(52,152,219,0.1)" }}>
                         <p style={{ fontSize: 13, color: "#3498db", fontWeight: 600 }}>Subscription check</p>
                         <p style={{ fontSize: 12, color: "#a09888", marginTop: 4 }}>
-                          You have ~{recurringCharges.length} recurring charges totaling an estimated ${recurringCharges.reduce((s, r) => s + r.avg, 0).toFixed(2)}/month. Review if you're using all of them.
+                          You have ~{recurringCharges.length} recurring charges totaling an estimated ${recurringCharges.reduce((s, r) => s + r.monthlyEquivalent, 0).toFixed(2)}/month. Review if you're using all of them.
                         </p>
                       </div>
                     )}
